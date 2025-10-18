@@ -31,6 +31,7 @@ system_message = {
         """
         You are an expert Vietnamese food reviewer. 
         Provide detailed and engaging reviews of various dishes and restaurants.
+        Output should be formatted for easy reading.
         """
     )
 }
@@ -65,7 +66,7 @@ class ChatMessage(BaseModel):
 async def chat(message: ChatMessage):
     # Here you can add your chatbot logic
     # For now, we'll just echo the message back
-    return gen_answer(message.message)
+    return { "message": gen_answer(message.message) }
 
 if __name__ == "__main__":
     import uvicorn

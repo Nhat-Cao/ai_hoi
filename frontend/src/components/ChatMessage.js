@@ -4,22 +4,17 @@ const ChatMessage = ({ message }) => {
   const isUser = message.sender === 'user';
 
   return (
-    <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className="flex w-full max-w-4xl">
-        <div className={`flex gap-4 p-6 w-full ${!isUser ? 'bg-gray-50' : ''}`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-            isUser ? 'bg-blue-500' : 'bg-green-500'
-          }`}>
-            {isUser ? '👤' : '🤖'}
-          </div>
-          <div className="flex-grow">
-            <div className={`text-base ${isUser ? 'text-gray-800' : 'text-gray-700'}`}>
-              {message.text}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+<div className={`flex w-full px-6 py-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+  <div
+    className={`text-base p-3 rounded-2xl border break-words whitespace-pre-wrap inline-block
+      ${isUser
+        ? 'text-gray-800 bg-gray-200 border-gray-300 max-w-[60%]'
+        : 'text-gray-700 bg-white border-gray-200'
+      }`}
+  >
+    {message.text}
+  </div>
+</div>
   );
 };
 
