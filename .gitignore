@@ -1,0 +1,105 @@
+# ==========================
+# General
+# ==========================
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
+*.swp
+.env
+.env.*
+!.env.example
+
+# ==========================
+# Node / React (Frontend)
+# ==========================
+# dependencies
+/frontend/node_modules/
+# production build
+/frontend/build/
+# misc
+frontend/.eslintcache
+frontend/.parcel-cache
+frontend/.next/
+frontend/out/
+frontend/dist/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# ==========================
+# Python (Backend)
+# ==========================
+# Byte-compiled / optimized / DLL files
+/backend/__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+/backend/build/
+backend/dist/
+backend/.venv
+backend/*.egg-info/
+.eggs/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Virtual environments
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# PyCharm / VSCode / Editors
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# MyPy / Pyre / Pytype
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+
+# ==========================
+# System files
+# ==========================
+*.orig
+*.rej
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+
+# ==========================
+# Optional: Docker / runtime
+# ==========================
+.dockerignore
+docker-compose.override.yml
+__pypackages__/
