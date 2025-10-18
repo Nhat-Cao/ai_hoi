@@ -1,74 +1,77 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import ChatWindow from './components/ChatWindow';
+import ChatInput from './components/ChatInput';
 
 function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const chatContainerRef = useRef(null);
+
+  useEffect(() => {
+    // Scroll to bottom when messages change
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
 
   const sendMessage = async (e) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || isLoading) return;
 
-    // Add user message to chat
     const userMessage = { text: input, sender: 'user' };
-    setMessages([...messages, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
+    setIsLoading(true);
 
     try {
-      // Send message to backend
       const response = await axios.post('http://localhost:8000/chat', {
         message: input
       });
 
-      // Add bot response to chat
-      const botMessage = { text: response.data, sender: 'bot' };
-      setMessages(prevMessages => [...prevMessages, botMessage]);
+      const botMessage = { 
+        text: response.data.message || "I don't understand. Could you rephrase that?", 
+        sender: 'bot' 
+      };
+      setMessages(prev => [...prev, botMessage]);
     } catch (error) {
       console.error('Error:', error);
+      const errorMessage = { 
+        text: 'Sorry, I encountered an error. Please try again.', 
+        sender: 'bot' 
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="space-y-4 mb-4 h-96 overflow-y-auto">
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                className={`flex ${
-                  message.sender === 'user' ? 'justify-end' : 'justify-start'
-                }`}
-              >
-                <div
-                  className={`rounded-lg px-4 py-2 max-w-sm ${
-                    message.sender === 'user'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-200 text-gray-800'
-                  }`}
-                >
-                  {message.text}
-                </div>
-              </div>
-            ))}
-          </div>
-          <form onSubmit={sendMessage} className="flex gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Type your message..."
-            />
-            <button
-              type="submit"
-              className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              Send
-            </button>
-          </form>
+    <div className="flex flex-col h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 py-3">
+        <div className="max-w-4xl mx-auto px-4">
+          <h1 className="text-xl font-semibold text-gray-800">AI Hỏi 🍕</h1>
         </div>
-      </div>
+      </header>
+
+      {/* Main chat area */}
+      <main className="flex-1 overflow-hidden relative">
+        <div 
+          ref={chatContainerRef}
+          className="h-full overflow-y-auto pb-32"
+        >
+          <ChatWindow messages={messages} />
+        </div>
+        
+        {/* Input area */}
+        <ChatInput 
+          input={input} 
+          setInput={setInput} 
+          sendMessage={sendMessage} 
+        />
+      </main>
     </div>
   );
 }
