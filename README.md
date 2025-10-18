@@ -60,6 +60,12 @@ ai_hoi/
    pip install -r requirements.txt
    ```
 
+4. Create .env file:
+   ```bash
+   AZURE_OPENAI_ENDPOINT=https://aiportalapi.stu-platform.live/jpe
+   AZURE_OPENAI_API_KEY=#your-key
+   AZURE_OPENAI_MODEL_NAME=#your-model
+   ```
 ## Running the Application
 
 You'll need to run both the frontend and backend servers.
