@@ -11,7 +11,7 @@ export default function MessageBubble({ role, text }) {
 
 const styles = StyleSheet.create({
   balloon: { marginVertical: 6, padding: 12, borderRadius: 12, maxWidth: '85%', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, elevation: 2 },
-  user: { backgroundColor: '#0b93f6', alignSelf: 'flex-end', borderBottomRightRadius: 4 },
+  user: { backgroundColor: '#6a6b6bff', alignSelf: 'flex-end', borderBottomRightRadius: 4 },
   bot: { backgroundColor: '#1f1f1f', alignSelf: 'flex-start', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: '#2b2b2b' },
   text: { color: '#fff', fontSize: 16, lineHeight: 22 },
 });
