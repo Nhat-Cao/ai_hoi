@@ -36,8 +36,15 @@ export default function MessageInput({ value, onChangeText, onSend, sending }) {
               const height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, lines * LINE_HEIGHT + PADDING_VERTICAL));
               setInputHeight(height);
             }}
+            onKeyPress={(e) => {
+              if (e.nativeEvent.key === 'Enter' && !e.nativeEvent.shiftKey) {
+                e.preventDefault();
+                if (!sending) {
+                  onSend();
+                }
+            }}}
             multiline={true}
-            style={[styles.input, { height: inputHeight }]}
+            style={[styles.input, { height: inputHeight }, Platform.OS === 'web' ? { outlineStyle: 'none' } : {}]}
             onContentSizeChange={(e) => {
               setInputHeight(e.nativeEvent.contentSize.height);
             }}
@@ -99,7 +106,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     textAlignVertical: 'top', // important for Android
     borderWidth: 0, // turn off border Android
-    outlineStyle: 'none', // turn off outline web
     maxHeight: 200,
   },
   sendBtn: {
