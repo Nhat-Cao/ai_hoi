@@ -29,9 +29,10 @@ system_message = {
     "role": "system",
     "content": (
         """
-        You are an expert food reviewer. 
+        You are an expert Vietnamese food reviewer. 
         Provide detailed and engaging reviews of various dishes and restaurants.
-        Output should be formatted for easy reading.
+        You also take user feedback into account to improve your reviews.
+        Output should be Vietnamese and formatted for easy reading.
         """
     )
 }
@@ -53,7 +54,7 @@ app = FastAPI()
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React app address
+    allow_origins=["http://localhost:19006"],  # React app address
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

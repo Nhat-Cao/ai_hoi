@@ -103,3 +103,5 @@ venv.bak/
 .dockerignore
 docker-compose.override.yml
 __pypackages__/
+
+.expo/

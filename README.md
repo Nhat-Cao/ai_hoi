@@ -1,126 +1,140 @@
-# AI Hỏi Chatbot
+## AI Hỏi Chatbot
 
-A chatbot application built with React.js frontend and Python FastAPI backend.
+A chatbot application with a Python FastAPI backend and a React Native (Expo) frontend.
 
-## Project Structure
+## Project structure
 
 ```
 ai_hoi/
-├── frontend/           # React frontend
-│   ├── public/
-│   │   └── index.html
-│   ├── src/
-│   │   ├── App.js     # Main chat interface
-│   │   ├── index.js   # React entry point
-│   │   └── index.css  # Styles including Tailwind
-│   ├── package.json
-│   └── tailwind.config.js
-└── backend/           # Python FastAPI backend
-    ├── main.py       # FastAPI server
-    └── requirements.txt
+├── frontend/        # Expo React Native frontend (App.js)
+├── backend/         # Python FastAPI backend (main.py)
+└── README.md
 ```
 
 ## Prerequisites
 
-- Node.js (v14 or higher)
-- Python (v3.8 or higher)
-- npm (comes with Node.js)
-- pip (Python package manager)
+- Node.js (v16+ recommended)
+- npm or yarn
+- Python (v3.8+)
 
-## Setup Instructions
+## Setup
 
-### Frontend Setup
+Frontend (Expo)
 
-1. Navigate to the frontend directory:
-   ```bash
+1. Open a terminal and go to the frontend folder:
+
+   ```powershell
    cd frontend
    ```
 
-2. Install dependencies:
-   ```bash
+2. Install JS dependencies:
+
+   ```powershell
    npm install
    ```
 
-### Backend Setup
+Note: the frontend now includes additional packages to improve web and UI support (e.g. `react-native-paper`, `@expo/vector-icons`). If you run into missing peer dependencies when starting Expo on web, run `npx expo install` as prompted by the Expo CLI.
 
-1. Navigate to the backend directory:
-   ```bash
+3. Start Expo:
+
+   ```powershell
+   npm run start
+   ```
+
+Notes on backend URL from mobile:
+
+- The app uses `http://10.0.2.2:8000` by default which works for Android emulators (maps to host machine).
+- For iOS simulator, use `http://localhost:8000`.
+- For a physical device, replace the backend URL in `frontend/App.js` with your machine IP, e.g. `http://192.168.1.100:8000`.
+
+See `frontend/README.md` for more details about running the Expo app.
+
+Frontend quick start (copied here)
+
+1. Install dependencies (requires Node.js and npm/yarn):
+
+   ```powershell
+   cd frontend
+   npm install
+   ```
+
+2. Start Expo:
+
+   ```powershell
+   npm run start
+   ```
+
+3. Run on device/emulator:
+
+   - Web: open the web option in the Expo DevTools
+   - Android emulator: npm run android (NEED ANDROID STUDIO TO BE INSTALLED)
+   - iOS simulator: npm run ios (macOS only)
+
+Backend URL
+
+The app by default uses `http://10.0.2.2:8000` as the backend address (Android emulator loopback to host). If you're using a physical device, replace `DEFAULT_BACKEND` in `frontend/api.js` with your machine's local network IP (for example: `http://192.168.1.100:8000`).
+
+CORS
+
+Ensure the FastAPI backend has CORS enabled for the origin the Expo app uses (Expo web uses `http://localhost:19006` by default). See the backend `main.py` for CORS middleware configuration.
+
+Backend (FastAPI)
+
+1. Open a terminal and go to the backend folder:
+
+   ```powershell
    cd backend
    ```
 
-2. Create and activate a Python virtual environment (optional but recommended):
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate  # On Windows
-   source .venv/bin/activate  # On Unix or MacOS
+2. (Optional) Create and activate a virtual environment:
+
+   ```powershell
+   python -m venv .venv; .venv\Scripts\activate
    ```
 
 3. Install Python dependencies:
-   ```bash
+
+   ```powershell
    pip install -r requirements.txt
    ```
 
-4. Create .env file:
-   ```bash
-   AZURE_OPENAI_ENDPOINT=https://aiportalapi.stu-platform.live/jpe
-   AZURE_OPENAI_API_KEY=#your-key
-   AZURE_OPENAI_MODEL_NAME=#your-model
-   ```
-## Running the Application
+4. Create a `.env` file in `backend/` with the following values (fill your keys):
 
-You'll need to run both the frontend and backend servers.
-
-### Start the Frontend Server
-
-1. In a terminal, navigate to the frontend directory:
-   ```bash
-   cd frontend
+   ```text
+   AZURE_OPENAI_ENDPOINT=https://...
+   AZURE_OPENAI_API_KEY=your-key
+   AZURE_OPENAI_MODEL_NAME=your-model
    ```
 
-2. Start the development server:
-   ```bash
-   npm start
-   ```
+5. Start the server:
 
-The frontend will be available at http://localhost:3000
-
-### Start the Backend Server
-
-1. In a new terminal, navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-
-2. Start the FastAPI server:
-   ```bash
+   ```powershell
    uvicorn main:app --reload
    ```
 
-The backend API will be available at http://localhost:8000
+The backend will be available at `http://localhost:8000`.
 
-### API Documentation
+## API
 
-- FastAPI automatic documentation is available at: http://localhost:8000/docs
-- OpenAPI specification is available at: http://localhost:8000/openapi.json
+- POST /chat — accepts JSON { "message": "..." } and returns { "message": "..." } from the bot.
 
-## Features
+## Development notes
 
-- Real-time chat interface
-- Clean, responsive UI with Tailwind CSS
-- Message history display
-- Easy to extend backend chatbot logic
+- Frontend structure (refactored for reuse/maintenance):
 
-## Development
+   - `frontend/App.js` — main app wiring and state
+   - `frontend/components/MessageList.js` — message list wrapper (uses FlatList)
+   - `frontend/components/MessageBubble.js` — single message bubble component
+   - `frontend/components/MessageInput.js` — input area + send button
+   - `frontend/api.js` — small API helper for POST /chat
 
-- Frontend code is in `frontend/src/App.js`
-- Backend API is in `backend/main.py`
-- Modify the `/chat` endpoint in `main.py` to implement your chatbot logic
+- Adjust the backend URL used in `frontend/api.js` (DEFAULT_BACKEND) when testing on devices or different emulators.
+- The backend FastAPI app is in `backend/main.py`.
 
-## Stopping the Application
+## Stopping
 
-To stop the servers:
-1. Press `Ctrl+C` in both terminal windows
-2. Deactivate the Python virtual environment if you used one:
-   ```bash
-   deactivate
-   ```
+- Press Ctrl+C in the terminals running Expo and uvicorn.
+
+---
+
+For more frontend-specific tips, see `frontend/README.md`.

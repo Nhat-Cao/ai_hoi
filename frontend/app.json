@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "AI HOI - Ăn gì?",
+    "slug": "ai-hoi-frontend",
+    "version": "1.0.0",
+    "sdkVersion": "49.0.0",
+    "platforms": ["ios", "android", "web"]
+  }
+}
