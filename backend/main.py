@@ -120,6 +120,10 @@ async def chat(message: ChatMessage):
 async def reverse_geocode(location: Location):
     return get_location_from_coordinates(location.lat, location.lon)
 
+@app.get("/")
+async def root():
+    return {"message": "AI-HOI Backend is running."}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
