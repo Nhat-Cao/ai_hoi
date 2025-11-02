@@ -1,11 +1,16 @@
 import React from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 
-export default function Header() {
+export default function Header({ currentLocation }) {
   return (
     <View style={styles.header}>
       <Text style={styles.title}>🍔 Ăn gì? 🍔</Text>
       <Text style={styles.subtitle}>AI Food reviewer</Text>
+      {currentLocation && (
+        <Text style={styles.subtitle}>
+          Bạn đang ở: {currentLocation}
+        </Text>
+      )}
     </View>
   );
 }
