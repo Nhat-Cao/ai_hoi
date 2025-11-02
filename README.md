@@ -1,12 +1,12 @@
 ## AI Hỏi Chatbot
 
-A chatbot application with a Python FastAPI backend and a React Native (Expo) frontend.
+A chatbot application with a Python FastAPI backend and a NextJs frontend.
 
 ## Project structure
 
 ```
 ai_hoi/
-├── frontend/        # Expo React Native frontend (App.js)
+├── frontend/        # NextJs frontend (App.js)
 ├── backend/         # Python FastAPI backend (main.py)
 └── README.md
 ```
@@ -19,7 +19,7 @@ ai_hoi/
 
 ## Setup
 
-Frontend (Expo)
+Frontend (Next)
 
 1. Open a terminal and go to the frontend folder:
 
@@ -33,12 +33,10 @@ Frontend (Expo)
    npm install
    ```
 
-Note: the frontend now includes additional packages to improve web and UI support (e.g. `react-native-paper`, `@expo/vector-icons`). If you run into missing peer dependencies when starting Expo on web, run `npx expo install` as prompted by the Expo CLI.
-
-3. Start Expo:
+3. Start Next:
 
    ```powershell
-   npm run start
+   npm run dev
    ```
 
 Notes on backend URL from mobile:
@@ -47,28 +45,7 @@ Notes on backend URL from mobile:
 - For iOS simulator, use `http://localhost:8000`.
 - For a physical device, replace the backend URL in `frontend/App.js` with your machine IP, e.g. `http://192.168.1.100:8000`.
 
-See `frontend/README.md` for more details about running the Expo app.
-
-Frontend quick start (copied here)
-
-1. Install dependencies (requires Node.js and npm/yarn):
-
-   ```powershell
-   cd frontend
-   npm install
-   ```
-
-2. Start Expo:
-
-   ```powershell
-   npm run start
-   ```
-
-3. Run on device/emulator:
-
-   - Web: open the web option in the Expo DevTools
-   - Android emulator: npm run android (NEED ANDROID STUDIO TO BE INSTALLED)
-   - iOS simulator: npm run ios (macOS only)
+See `frontend/README.md` for more details about running the Next app.
 
 Backend URL
 
@@ -76,7 +53,7 @@ The app by default uses `http://10.0.2.2:8000` as the backend address (Android e
 
 CORS
 
-Ensure the FastAPI backend has CORS enabled for the origin the Expo app uses (Expo web uses `http://localhost:19006` by default). See the backend `main.py` for CORS middleware configuration.
+Ensure the FastAPI backend has CORS enabled for the origin the Expo app uses (Expo web uses `http://localhost:3000` by default). See the backend `main.py` for CORS middleware configuration.
 
 Backend (FastAPI)
 
