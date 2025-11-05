@@ -5,6 +5,8 @@ import os
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 from location import get_coordinates_from_text, get_location_from_coordinates, search_restaurants_as_string
+from typing import Optional
+from rag_chain import rag_chat as lc_rag_chat
 
 # ---------------------- Setup ----------------------
 load_dotenv()
@@ -32,6 +34,10 @@ class ChatMessage(BaseModel):
 class Location(BaseModel):
     lat: float
     lon: float
+
+class RAGChatRequest(BaseModel):
+    query: str
+    namespace: Optional[str] = None
 
 # ---------------------- Helper ----------------------
 def extract_entities(input_text: str):
@@ -115,6 +121,10 @@ app.add_middleware(
 @app.post("/chat")
 async def chat(message: ChatMessage):
     return {"message": gen_answer(message.text, message.location)}
+
+@app.post("/rag/chat")
+async def rag_chat(req: RAGChatRequest):
+    return {"message": lc_rag_chat(req.query, req.namespace)}
 
 @app.post("/location")
 async def reverse_geocode(location: Location):
