@@ -1,9 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 import os 
 from openai import AzureOpenAI
 from dotenv import load_dotenv
+import tempfile
 from location import get_coordinates_from_text, get_location_from_coordinates, search_restaurants_as_string
 
 # ---------------------- Setup ----------------------
@@ -120,9 +122,59 @@ async def chat(message: ChatMessage):
 async def reverse_geocode(location: Location):
     return get_location_from_coordinates(location.lat, location.lon)
 
+@app.post("/speech-to-text")
+async def speech_to_text(audio: UploadFile = File(...)):
+    """Convert audio file to text using Azure Whisper API"""
+    try:
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+            content = await audio.read()
+            temp_audio.write(content)
+            temp_audio_path = temp_audio.name
+        
+        # Use Azure OpenAI Whisper API
+        with open(temp_audio_path, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1",  # Azure OpenAI Whisper model
+                file=audio_file,
+                language="vi"  # Vietnamese language
+            )
+        
+        # Clean up temp file
+        os.unlink(temp_audio_path)
+        
+        return {"text": transcription.text}
+    
+    except Exception as e:
+        print(f"❌ Speech-to-text error: {e}")
+        return {"error": str(e), "text": ""}
+
+@app.post("/text-to-speech")
+async def text_to_speech(message: dict):
+    """Convert text to speech using Azure TTS API"""
+    try:
+        text = message.get("text", "")
+        if not text:
+            return Response(content=b"", media_type="audio/mpeg")
+        
+        # Use Azure OpenAI TTS
+        response = client.audio.speech.create(
+            model="tts-1",  # Azure OpenAI TTS model
+            voice="alloy",  # Available voices: alloy, echo, fable, onyx, nova, shimmer
+            input=text
+        )
+        
+        # Return audio as response
+        audio_content = response.content
+        return Response(content=audio_content, media_type="audio/mpeg")
+    
+    except Exception as e:
+        print(f"❌ Text-to-speech error: {e}")
+        return Response(content=b"", media_type="audio/mpeg")
+
 @app.get("/")
 async def root():
-    return {"message": "AI-HOI Backend is running."}
+    return {"message": "AI-HOI Backend is running with Voice & Video features."}
 
 if __name__ == "__main__":
     import uvicorn

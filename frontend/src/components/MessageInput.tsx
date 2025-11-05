@@ -1,5 +1,6 @@
 import React, { KeyboardEvent, useRef, useEffect } from 'react';
 import { IoSend, IoPause } from "react-icons/io5";
+import VoiceRecorder from './VoiceRecorder';
 
 interface MessageInputProps {
   value: string;
@@ -40,10 +41,20 @@ export default function MessageInput({ value, onChangeText, onSend, sending }: M
     }
   }, [value]);
 
+  const handleVoiceTranscription = (text: string) => {
+    onChangeText(text);
+  };
+
   return (
     <div className="px-3 py-3">
       <div className="relative bg-[#161718] px-4 py-2 shadow-sm border border-[#2a2a2a]
-                      rounded-[30px] flex items-end transition-all duration-200">
+                      rounded-[30px] flex items-end gap-2 transition-all duration-200">
+        
+        {/* Voice Recorder Button */}
+        <div className="flex items-center pb-2">
+          <VoiceRecorder onTranscription={handleVoiceTranscription} />
+        </div>
+
         <textarea
           ref={textareaRef}
           id="text-input"
