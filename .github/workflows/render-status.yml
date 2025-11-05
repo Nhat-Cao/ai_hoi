@@ -21,17 +21,18 @@ jobs:
         uses: actions/checkout@v4
 
       # === FRONTEND ===
-      - name: Poll Render API for frontend deploy
+      - name: Get current deploy from Render (frontend)
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
           set +e
           FRONTEND_ID="srv-d43lmj0dl3ps73a2d0a0"
-          echo "🔍 Checking frontend deploy..."
-          echo "🌐 Requesting: https://api.render.com/v1/services/$FRONTEND_ID/deploys"
+          echo "🔍 Checking frontend service details..."
+          echo "🌐 Requesting: https://api.render.com/v1/services/$FRONTEND_ID"
 
-          response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$FRONTEND_ID/deploys")
+          response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$FRONTEND_ID")
 
           http_status=$(echo "$response" | tr -d '\r' | sed -n 's/.*HTTP_STATUS://p')
           body=$(echo "$response" | sed -e 's/HTTP_STATUS\:.*//g')
@@ -45,9 +46,9 @@ jobs:
             FRONTEND_STATE="unknown"
             FRONTEND_URL=""
           else
-            latest=$(echo "$body" | jq -r '.[0]')
-            FRONTEND_STATE=$(echo "$latest" | jq -r '.status // .state // "unknown"')
-            FRONTEND_URL=$(echo "$latest" | jq -r '.url // .log_url // ""' | grep -v null)
+            deploy=$(echo "$body" | jq -r '.serviceDetails.currentDeploy')
+            FRONTEND_STATE=$(echo "$deploy" | jq -r '.status // "unknown"')
+            FRONTEND_URL=$(echo "$deploy" | jq -r '.logUrl // .url // ""' | grep -v null)
           fi
 
           echo "FRONTEND_STATE=$FRONTEND_STATE" >> $GITHUB_ENV
@@ -56,17 +57,18 @@ jobs:
           echo "✅ FRONTEND_URL=$FRONTEND_URL"
 
       # === BACKEND ===
-      - name: Poll Render API for backend deploy
+      - name: Get current deploy from Render (backend)
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
           set +e
           BACKEND_ID="srv-d43lb6euk2gs73982rq0"
-          echo "🔍 Checking backend deploy..."
-          echo "🌐 Requesting: https://api.render.com/v1/services/$BACKEND_ID/deploys"
+          echo "🔍 Checking backend service details..."
+          echo "🌐 Requesting: https://api.render.com/v1/services/$BACKEND_ID"
 
-          response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$BACKEND_ID/deploys")
+          response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$BACKEND_ID")
 
           http_status=$(echo "$response" | tr -d '\r' | sed -n 's/.*HTTP_STATUS://p')
           body=$(echo "$response" | sed -e 's/HTTP_STATUS\:.*//g')
@@ -80,9 +82,9 @@ jobs:
             BACKEND_STATE="unknown"
             BACKEND_URL=""
           else
-            latest=$(echo "$body" | jq -r '.[0]')
-            BACKEND_STATE=$(echo "$latest" | jq -r '.status // .state // "unknown"')
-            BACKEND_URL=$(echo "$latest" | jq -r '.url // .log_url // ""' | grep -v null)
+            deploy=$(echo "$body" | jq -r '.serviceDetails.currentDeploy')
+            BACKEND_STATE=$(echo "$deploy" | jq -r '.status // "unknown"')
+            BACKEND_URL=$(echo "$deploy" | jq -r '.logUrl // .url // ""' | grep -v null)
           fi
 
           echo "BACKEND_STATE=$BACKEND_STATE" >> $GITHUB_ENV
