@@ -1,0 +1,91 @@
+name: Update Render Deploy Status (2 Services)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  update-render-status:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Poll Render API for frontend deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          FRONTEND_ID="srv-d43lmj0dl3ps73a2d0a0"
+          echo "🔍 Checking frontend deploy..."
+          latest=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$FRONTEND_ID/deploys" | jq -r '.[0]')
+          state=$(echo "$latest" | jq -r '.status // .state')
+          url=$(echo "$latest" | jq -r '.url // .log_url')
+          echo "FRONTEND_STATE=$state" >> $GITHUB_ENV
+          echo "FRONTEND_URL=$url" >> $GITHUB_ENV
+
+      - name: Poll Render API for backend deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          BACKEND_ID="srv-d43lb6euk2gs73982rq0"
+          echo "🔍 Checking backend deploy..."
+          latest=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$BACKEND_ID/deploys" | jq -r '.[0]')
+          state=$(echo "$latest" | jq -r '.status // .state')
+          url=$(echo "$latest" | jq -r '.url // .log_url')
+          echo "BACKEND_STATE=$state" >> $GITHUB_ENV
+          echo "BACKEND_URL=$url" >> $GITHUB_ENV
+
+      - name: Update GitHub status for frontend
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA="${{ github.sha }}"
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+
+          if [ "$FRONTEND_STATE" = "succeeded" ] || [ "$FRONTEND_STATE" = "live" ]; then GSTATE="success"; fi
+          if [ "$FRONTEND_STATE" = "failed" ] || [ "$FRONTEND_STATE" = "error" ]; then GSTATE="failure"; fi
+          if [ -z "$GSTATE" ]; then GSTATE="pending"; fi
+
+          echo "📡 Updating frontend status: $GSTATE ($FRONTEND_STATE)"
+
+          curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            -X POST "https://api.github.com/repos/$OWNER/$REPO/statuses/$SHA" \
+            -d "{
+              \"state\": \"$GSTATE\",
+              \"target_url\": \"$FRONTEND_URL\",
+              \"description\": \"Frontend deploy: $FRONTEND_STATE\",
+              \"context\": \"render/frontend\"
+            }"
+
+      - name: Update GitHub status for backend
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA="${{ github.sha }}"
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+
+          if [ "$BACKEND_STATE" = "succeeded" ] || [ "$BACKEND_STATE" = "live" ]; then GSTATE="success"; fi
+          if [ "$BACKEND_STATE" = "failed" ] || [ "$BACKEND_STATE" = "error" ]; then GSTATE="failure"; fi
+          if [ -z "$GSTATE" ]; then GSTATE="pending"; fi
+
+          echo "📡 Updating backend status: $GSTATE ($BACKEND_STATE)"
+
+          curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            -X POST "https://api.github.com/repos/$OWNER/$REPO/statuses/$SHA" \
+            -d "{
+              \"state\": \"$GSTATE\",
+              \"target_url\": \"$BACKEND_URL\",
+              \"description\": \"Backend deploy: $BACKEND_STATE\",
+              \"context\": \"render/backend\"
+            }"
