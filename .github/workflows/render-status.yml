@@ -20,6 +20,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      # === FRONTEND ===
       - name: Poll Render API for frontend deploy
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -28,6 +29,7 @@ jobs:
           FRONTEND_ID="srv-d43lmj0dl3ps73a2d0a0"
           echo "🔍 Checking frontend deploy..."
           echo "🌐 Requesting: https://api.render.com/v1/services/$FRONTEND_ID/deploys"
+
           response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
             "https://api.render.com/v1/services/$FRONTEND_ID/deploys")
 
@@ -38,19 +40,22 @@ jobs:
           echo "📄 Response body:"
           echo "$body" | jq '.' || echo "$body"
 
-          if [ "$http_status" != "200" ]; then
-            echo "⚠️ Render API returned HTTP $http_status for frontend."
+          if [ "$http_status" -ge 400 ]; then
+            echo "❌ Render API error (frontend): HTTP $http_status"
+            FRONTEND_STATE="unknown"
+            FRONTEND_URL=""
+          else
+            latest=$(echo "$body" | jq -r '.[0]')
+            FRONTEND_STATE=$(echo "$latest" | jq -r '.status // .state // "unknown"')
+            FRONTEND_URL=$(echo "$latest" | jq -r '.url // .log_url // ""' | grep -v null)
           fi
 
-          latest=$(echo "$body" | jq -r '.[0]')
-          state=$(echo "$latest" | jq -r '.status // .state')
-          url=$(echo "$latest" | jq -r '.url // .log_url')
+          echo "FRONTEND_STATE=$FRONTEND_STATE" >> $GITHUB_ENV
+          echo "FRONTEND_URL=$FRONTEND_URL" >> $GITHUB_ENV
+          echo "✅ FRONTEND_STATE=$FRONTEND_STATE"
+          echo "✅ FRONTEND_URL=$FRONTEND_URL"
 
-          echo "FRONTEND_STATE=$state" >> $GITHUB_ENV
-          echo "FRONTEND_URL=$url" >> $GITHUB_ENV
-          echo "✅ FRONTEND_STATE=$state"
-          echo "✅ FRONTEND_URL=$url"
-
+      # === BACKEND ===
       - name: Poll Render API for backend deploy
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -59,6 +64,7 @@ jobs:
           BACKEND_ID="srv-d43lb6euk2gs73982rq0"
           echo "🔍 Checking backend deploy..."
           echo "🌐 Requesting: https://api.render.com/v1/services/$BACKEND_ID/deploys"
+
           response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
             "https://api.render.com/v1/services/$BACKEND_ID/deploys")
 
@@ -69,19 +75,22 @@ jobs:
           echo "📄 Response body:"
           echo "$body" | jq '.' || echo "$body"
 
-          if [ "$http_status" != "200" ]; then
-            echo "⚠️ Render API returned HTTP $http_status for backend."
+          if [ "$http_status" -ge 400 ]; then
+            echo "❌ Render API error (backend): HTTP $http_status"
+            BACKEND_STATE="unknown"
+            BACKEND_URL=""
+          else
+            latest=$(echo "$body" | jq -r '.[0]')
+            BACKEND_STATE=$(echo "$latest" | jq -r '.status // .state // "unknown"')
+            BACKEND_URL=$(echo "$latest" | jq -r '.url // .log_url // ""' | grep -v null)
           fi
 
-          latest=$(echo "$body" | jq -r '.[0]')
-          state=$(echo "$latest" | jq -r '.status // .state')
-          url=$(echo "$latest" | jq -r '.url // .log_url')
+          echo "BACKEND_STATE=$BACKEND_STATE" >> $GITHUB_ENV
+          echo "BACKEND_URL=$BACKEND_URL" >> $GITHUB_ENV
+          echo "✅ BACKEND_STATE=$BACKEND_STATE"
+          echo "✅ BACKEND_URL=$BACKEND_URL"
 
-          echo "BACKEND_STATE=$state" >> $GITHUB_ENV
-          echo "BACKEND_URL=$url" >> $GITHUB_ENV
-          echo "✅ BACKEND_STATE=$state"
-          echo "✅ BACKEND_URL=$url"
-
+      # === UPDATE FRONTEND STATUS ===
       - name: Update GitHub status for frontend
         if: always()
         env:
@@ -98,18 +107,27 @@ jobs:
             *)              GSTATE="pending" ;;
           esac
 
-          echo "📡 Updating frontend status on GitHub: $GSTATE ($FRONTEND_STATE)"
+          if [[ "$FRONTEND_URL" =~ ^https?:// ]]; then
+            TARGET_URL="\"target_url\": \"$FRONTEND_URL\","
+          else
+            TARGET_URL=""
+            echo "⚠️ Skipping invalid FRONTEND_URL: $FRONTEND_URL"
+          fi
+
+          echo "📡 Updating frontend status: $GSTATE ($FRONTEND_STATE)"
+          echo "🔗 Using target_url: $FRONTEND_URL"
 
           curl -v -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             -X POST "https://api.github.com/repos/$OWNER/$REPO/statuses/$SHA" \
             -d "{
               \"state\": \"$GSTATE\",
-              \"target_url\": \"$FRONTEND_URL\",
+              $TARGET_URL
               \"description\": \"Frontend deploy: $FRONTEND_STATE\",
               \"context\": \"render/frontend\"
             }"
 
+      # === UPDATE BACKEND STATUS ===
       - name: Update GitHub status for backend
         if: always()
         env:
@@ -126,14 +144,22 @@ jobs:
             *)              GSTATE="pending" ;;
           esac
 
-          echo "📡 Updating backend status on GitHub: $GSTATE ($BACKEND_STATE)"
+          if [[ "$BACKEND_URL" =~ ^https?:// ]]; then
+            TARGET_URL="\"target_url\": \"$BACKEND_URL\","
+          else
+            TARGET_URL=""
+            echo "⚠️ Skipping invalid BACKEND_URL: $BACKEND_URL"
+          fi
+
+          echo "📡 Updating backend status: $GSTATE ($BACKEND_STATE)"
+          echo "🔗 Using target_url: $BACKEND_URL"
 
           curl -v -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             -X POST "https://api.github.com/repos/$OWNER/$REPO/statuses/$SHA" \
             -d "{
               \"state\": \"$GSTATE\",
-              \"target_url\": \"$BACKEND_URL\",
+              $TARGET_URL
               \"description\": \"Backend deploy: $BACKEND_STATE\",
               \"context\": \"render/backend\"
             }"
