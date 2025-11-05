@@ -10,6 +10,16 @@ from location import get_coordinates_from_text, get_location_from_coordinates, s
 
 # ---------------------- Setup ----------------------
 load_dotenv()
+
+# Check if using Hugging Face for speech services
+USE_HUGGINGFACE_SPEECH = os.getenv("USE_HUGGINGFACE_SPEECH", "false").lower() == "true"
+
+if USE_HUGGINGFACE_SPEECH:
+    print("🎙️ Using Hugging Face models for speech services (FREE)")
+    from hf_speech import transcribe_audio, text_to_speech_gtts
+else:
+    print("🎙️ Using Azure OpenAI for speech services")
+
 client = AzureOpenAI(
     api_version="2024-07-01-preview",
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
@@ -124,26 +134,40 @@ async def reverse_geocode(location: Location):
 
 @app.post("/speech-to-text")
 async def speech_to_text(audio: UploadFile = File(...)):
-    """Convert audio file to text using Azure Whisper API"""
+    """Convert audio file to text using Whisper (Hugging Face or Azure)"""
     try:
+        print(f"\n{'='*60}")
+        print(f"🎤 New speech-to-text request")
+        print(f"📁 Filename: {audio.filename}")
+        print(f"📊 Content type: {audio.content_type}")
+        
         # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
             content = await audio.read()
             temp_audio.write(content)
             temp_audio_path = temp_audio.name
         
-        # Use Azure OpenAI Whisper API
-        with open(temp_audio_path, "rb") as audio_file:
-            transcription = client.audio.transcriptions.create(
-                model="whisper-1",  # Azure OpenAI Whisper model
-                file=audio_file,
-                language="vi"  # Vietnamese language
-            )
+        print(f"💾 Saved to: {temp_audio_path}")
+        print(f"📏 File size: {os.path.getsize(temp_audio_path)} bytes")
+        print(f"{'='*60}\n")
         
-        # Clean up temp file
-        os.unlink(temp_audio_path)
-        
-        return {"text": transcription.text}
+        if USE_HUGGINGFACE_SPEECH:
+            # Use Hugging Face Whisper model (FREE)
+            text = transcribe_audio(temp_audio_path, language="vi")
+            os.unlink(temp_audio_path)
+            return {"text": text}
+        else:
+            # Use Azure OpenAI Whisper API
+            with open(temp_audio_path, "rb") as audio_file:
+                transcription = client.audio.transcriptions.create(
+                    model="whisper-1",  # Azure OpenAI Whisper model
+                    file=audio_file,
+                    language="vi"  # Vietnamese language
+                )
+            
+            # Clean up temp file
+            os.unlink(temp_audio_path)
+            return {"text": transcription.text}
     
     except Exception as e:
         print(f"❌ Speech-to-text error: {e}")
@@ -151,22 +175,27 @@ async def speech_to_text(audio: UploadFile = File(...)):
 
 @app.post("/text-to-speech")
 async def text_to_speech(message: dict):
-    """Convert text to speech using Azure TTS API"""
+    """Convert text to speech using gTTS (Hugging Face) or Azure TTS"""
     try:
         text = message.get("text", "")
         if not text:
             return Response(content=b"", media_type="audio/mpeg")
         
-        # Use Azure OpenAI TTS
-        response = client.audio.speech.create(
-            model="tts-1",  # Azure OpenAI TTS model
-            voice="alloy",  # Available voices: alloy, echo, fable, onyx, nova, shimmer
-            input=text
-        )
-        
-        # Return audio as response
-        audio_content = response.content
-        return Response(content=audio_content, media_type="audio/mpeg")
+        if USE_HUGGINGFACE_SPEECH:
+            # Use gTTS (Google Text-to-Speech) - FREE, no API key required
+            audio_content = text_to_speech_gtts(text, language="vi")
+            return Response(content=audio_content, media_type="audio/mpeg")
+        else:
+            # Use Azure OpenAI TTS
+            response = client.audio.speech.create(
+                model="tts-1",  # Azure OpenAI TTS model
+                voice="alloy",  # Available voices: alloy, echo, fable, onyx, nova, shimmer
+                input=text
+            )
+            
+            # Return audio as response
+            audio_content = response.content
+            return Response(content=audio_content, media_type="audio/mpeg")
     
     except Exception as e:
         print(f"❌ Text-to-speech error: {e}")
