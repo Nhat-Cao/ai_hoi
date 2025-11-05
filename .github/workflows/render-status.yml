@@ -24,36 +24,70 @@ jobs:
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          set -e
+          set +e
           FRONTEND_ID="srv-d43lmj0dl3ps73a2d0a0"
           echo "🔍 Checking frontend deploy..."
-          latest=$(curl --fail -s -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$FRONTEND_ID/deploys" | jq -r '.[0]')
+          echo "🌐 Requesting: https://api.render.com/v1/services/$FRONTEND_ID/deploys"
+          response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$FRONTEND_ID/deploys")
+
+          http_status=$(echo "$response" | tr -d '\r' | sed -n 's/.*HTTP_STATUS://p')
+          body=$(echo "$response" | sed -e 's/HTTP_STATUS\:.*//g')
+
+          echo "🔢 HTTP Status: $http_status"
+          echo "📄 Response body:"
+          echo "$body" | jq '.' || echo "$body"
+
+          if [ "$http_status" != "200" ]; then
+            echo "⚠️ Render API returned HTTP $http_status for frontend."
+          fi
+
+          latest=$(echo "$body" | jq -r '.[0]')
           state=$(echo "$latest" | jq -r '.status // .state')
           url=$(echo "$latest" | jq -r '.url // .log_url')
+
           echo "FRONTEND_STATE=$state" >> $GITHUB_ENV
           echo "FRONTEND_URL=$url" >> $GITHUB_ENV
+          echo "✅ FRONTEND_STATE=$state"
+          echo "✅ FRONTEND_URL=$url"
 
       - name: Poll Render API for backend deploy
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          set -e
+          set +e
           BACKEND_ID="srv-d43lb6euk2gs73982rq0"
           echo "🔍 Checking backend deploy..."
-          latest=$(curl --fail -s -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$BACKEND_ID/deploys" | jq -r '.[0]')
+          echo "🌐 Requesting: https://api.render.com/v1/services/$BACKEND_ID/deploys"
+          response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$BACKEND_ID/deploys")
+
+          http_status=$(echo "$response" | tr -d '\r' | sed -n 's/.*HTTP_STATUS://p')
+          body=$(echo "$response" | sed -e 's/HTTP_STATUS\:.*//g')
+
+          echo "🔢 HTTP Status: $http_status"
+          echo "📄 Response body:"
+          echo "$body" | jq '.' || echo "$body"
+
+          if [ "$http_status" != "200" ]; then
+            echo "⚠️ Render API returned HTTP $http_status for backend."
+          fi
+
+          latest=$(echo "$body" | jq -r '.[0]')
           state=$(echo "$latest" | jq -r '.status // .state')
           url=$(echo "$latest" | jq -r '.url // .log_url')
+
           echo "BACKEND_STATE=$state" >> $GITHUB_ENV
           echo "BACKEND_URL=$url" >> $GITHUB_ENV
+          echo "✅ BACKEND_STATE=$state"
+          echo "✅ BACKEND_URL=$url"
 
       - name: Update GitHub status for frontend
         if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
+          set +e
           SHA="${{ github.sha }}"
           OWNER="${{ github.repository_owner }}"
           REPO="${{ github.event.repository.name }}"
@@ -64,9 +98,10 @@ jobs:
             *)              GSTATE="pending" ;;
           esac
 
-          echo "📡 Updating frontend status: $GSTATE ($FRONTEND_STATE)"
+          echo "📡 Updating frontend status on GitHub: $GSTATE ($FRONTEND_STATE)"
 
-          curl --fail -s -H "Authorization: token $GITHUB_TOKEN" \
+          curl -v -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
             -X POST "https://api.github.com/repos/$OWNER/$REPO/statuses/$SHA" \
             -d "{
               \"state\": \"$GSTATE\",
@@ -80,7 +115,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
+          set +e
           SHA="${{ github.sha }}"
           OWNER="${{ github.repository_owner }}"
           REPO="${{ github.event.repository.name }}"
@@ -91,9 +126,10 @@ jobs:
             *)              GSTATE="pending" ;;
           esac
 
-          echo "📡 Updating backend status: $GSTATE ($BACKEND_STATE)"
+          echo "📡 Updating backend status on GitHub: $GSTATE ($BACKEND_STATE)"
 
-          curl --fail -s -H "Authorization: token $GITHUB_TOKEN" \
+          curl -v -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
             -X POST "https://api.github.com/repos/$OWNER/$REPO/statuses/$SHA" \
             -d "{
               \"state\": \"$GSTATE\",
