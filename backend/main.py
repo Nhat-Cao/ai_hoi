@@ -12,14 +12,31 @@ from langchain_openai import AzureOpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.documents import Document
 from pinecone import Pinecone
+from elevenlabs import ElevenLabs
 
 # ---------------------- Setup ----------------------
 load_dotenv()
+
+# Clear any proxy settings to avoid 407 errors
+os.environ['NO_PROXY'] = '*'
+os.environ['no_proxy'] = '*'
+if 'HTTP_PROXY' in os.environ:
+    del os.environ['HTTP_PROXY']
+if 'HTTPS_PROXY' in os.environ:
+    del os.environ['HTTPS_PROXY']
+if 'http_proxy' in os.environ:
+    del os.environ['http_proxy']
+if 'https_proxy' in os.environ:
+    del os.environ['https_proxy']
+
 client = AzureOpenAI(
     api_version="2024-07-01-preview",
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
 )
+
+# Initialize ElevenLabs client
+elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 system_message = {
     "role": "system",
@@ -182,52 +199,63 @@ async def reverse_geocode(location: Location):
 
 @app.post("/speech-to-text")
 async def speech_to_text(audio: UploadFile = File(...)):
-    """Convert audio file to text using Azure Whisper API"""
+    """Convert audio file to text using ElevenLabs Speech-to-Text API optimized for Vietnamese"""
     try:
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-            content = await audio.read()
-            temp_audio.write(content)
-            temp_audio_path = temp_audio.name
+        # Read the uploaded audio file
+        audio_content = await audio.read()
+        print(f"🎙️ Received audio file: {len(audio_content)} bytes")
         
-        # Use Azure OpenAI Whisper API
-        with open(temp_audio_path, "rb") as audio_file:
-            transcription = client.audio.transcriptions.create(
-                model="whisper-1",  # Azure OpenAI Whisper model
-                file=audio_file,
-                language="vi"  # Vietnamese language
-            )
+        # Create BytesIO object from audio content
+        from io import BytesIO
+        audio_data = BytesIO(audio_content)
         
-        # Clean up temp file
-        os.unlink(temp_audio_path)
+        # Use ElevenLabs Speech-to-Text with Vietnamese language specification
+        print("🎙️ Calling ElevenLabs Speech-to-Text API...")
+        transcription = elevenlabs_client.speech_to_text.convert(
+            file=audio_data,
+            model_id="scribe_v1",  # Only scribe_v1 is supported
+            language_code="vi"  # Explicitly set to Vietnamese for better accuracy
+        )
         
+        print(f"✅ Transcription successful: {transcription.text}")
         return {"text": transcription.text}
     
+    except TimeoutError as e:
+        print(f"⏱️ Speech-to-text timeout: {e}")
+        return {"error": "Request timeout. Please try again.", "text": ""}
     except Exception as e:
-        print(f"❌ Speech-to-text error: {e}")
-        return {"error": str(e), "text": ""}
+        print(f"🎙️ Speech-to-text error: {e}")
+        return {"error": f"Transcription failed: {str(e)}", "text": ""}
 
 @app.post("/text-to-speech")
 async def text_to_speech(message: dict):
-    """Convert text to speech using Azure TTS API"""
+    """Convert text to speech using ElevenLabs TTS API"""
     try:
         text = message.get("text", "")
         if not text:
             return Response(content=b"", media_type="audio/mpeg")
         
-        # Use Azure OpenAI TTS
-        response = client.audio.speech.create(
-            model="tts-1",  # Azure OpenAI TTS model
-            voice="alloy",  # Available voices: alloy, echo, fable, onyx, nova, shimmer
-            input=text
+        # Use ElevenLabs TTS with multilingual v2 model for better Vietnamese support
+        audio_generator = elevenlabs_client.text_to_speech.convert(
+            text=text,
+            voice_id="pNInz6obpgDQGcFmaJgB",  # Adam voice - clear and natural for Vietnamese
+            model_id="eleven_multilingual_v2",  # Optimized for Vietnamese language
+            output_format="mp3_44100_128",
+            voice_settings={
+                "stability": 0.5,  # Balanced stability for clear Vietnamese pronunciation
+                "similarity_boost": 0.75,  # Higher similarity for natural Vietnamese tone
+                "style": 0.5,  # Moderate style for conversational Vietnamese
+                "use_speaker_boost": True  # Enhanced clarity for Vietnamese speech
+            }
         )
         
-        # Return audio as response
-        audio_content = response.content
-        return Response(content=audio_content, media_type="audio/mpeg")
+        # Convert generator to bytes
+        audio_bytes = b"".join(audio_generator)
+        
+        return Response(content=audio_bytes, media_type="audio/mpeg")
     
     except Exception as e:
-        print(f"❌ Text-to-speech error: {e}")
+        print(f"🔊 Text-to-speech error: {e}")
         return Response(content=b"", media_type="audio/mpeg")
 
 async def process_lines(lines: List[str], embeddings: AzureOpenAIEmbeddings, pc: Pinecone):
@@ -318,7 +346,7 @@ async def ingest_data(file: UploadFile = File(...)):
 
 @app.get("/")
 async def root():
-    return {"message": "AI-HOI Backend is running with Voice & Video features."}
+    return {"message": "AI-HOI Backend is running with ElevenLabs Voice features."}
 
 if __name__ == "__main__":
     import uvicorn
