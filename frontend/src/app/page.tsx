@@ -54,8 +54,10 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       const locationData = await getUserLocation();
-      const locationStr = locationData.address_details.road + ', ' + locationData.address_details.suburb + ', ' + locationData.address_details.city;
-      setCurrentLocation(locationStr);
+      if (locationData && locationData.address_details) {
+        const locationStr = locationData.address_details.road + ', ' + locationData.address_details.suburb + ', ' + locationData.address_details.city;
+        setCurrentLocation(locationStr);
+      }
     })();
   }, []);
 

@@ -8,66 +8,71 @@ interface VoiceRecorderProps {
 const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [useBackendFallback, setUseBackendFallback] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
   const startRecording = async () => {
-    try {
-      console.log('🎤 Requesting microphone access...');
+    // Try Web Speech API first
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (SpeechRecognition && !useBackendFallback) {
+      startWebSpeechRecognition();
+    } else {
+      // Fallback to MediaRecorder + Backend
+      await startMediaRecorderFallback();
+    }
+  };
+
+  const startWebSpeechRecognition = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'vi-VN'; // Vietnamese
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      setIsRecording(true);
+      console.log('🎤 Đang ghi âm (Web Speech API)...');
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      console.log('📝 Nhận diện được:', transcript);
+      onTranscription(transcript);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('❌ Lỗi Web Speech API:', event.error);
+      setIsRecording(false);
       
-      // Check if mediaDevices is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Your browser does not support audio recording. Please use a modern browser like Chrome, Firefox, or Edge.');
+      if (event.error === 'not-allowed') {
+        alert('Vui lòng cho phép truy cập microphone trong cài đặt trình duyệt.');
+      } else if (event.error === 'no-speech') {
+        alert('Không phát hiện giọng nói. Vui lòng thử lại.');
+      } else {
+        // Automatically switch to backend fallback
+        console.log('🔄 Tự động chuyển sang backend fallback...');
+        setUseBackendFallback(true);
+        setTimeout(() => startMediaRecorderFallback(), 100);
       }
+    };
 
-      // List available audio input devices
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = devices.filter(device => device.kind === 'audioinput');
-      console.log('🎙️ Available microphones:', audioInputs.map(d => ({
-        label: d.label || 'Unknown device',
-        deviceId: d.deviceId
-      })));
+    recognition.onend = () => {
+      setIsRecording(false);
+      console.log('🛑 Kết thúc ghi âm');
+    };
 
-      // Request ONLY microphone audio, not desktop/tab audio
-      // Use default microphone (user can select in browser settings)
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1, // Mono for better speech recognition
-          sampleRate: 48000, // Higher quality
-          sampleSize: 16
-        },
-        video: false  // Explicitly no video
-      });
-      
-      console.log('✅ Microphone access granted');
-      const audioTrack = stream.getAudioTracks()[0];
-      console.log('🎙️ Using microphone:', audioTrack.label);
-      console.log('🎙️ Audio settings:', audioTrack.getSettings());
-      
-      // Test audio levels
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      source.connect(analyser);
-      analyser.fftSize = 256;
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      
-      // Check audio level once
-      setTimeout(() => {
-        analyser.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-        console.log('📊 Audio level test:', average.toFixed(2), '(should be > 0 when speaking)');
-        if (average < 1) {
-          console.warn('⚠️ WARNING: Very low audio level detected. Microphone might not be working!');
-        }
-      }, 500);
-      
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm'
-      });
+    recognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  const startMediaRecorderFallback = async () => {
+    try {
+      console.log('🎤 Sử dụng backend fallback...');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -99,21 +104,17 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
 
       mediaRecorder.start();
       setIsRecording(true);
-      console.log('🔴 Recording started');
-    } catch (error: any) {
-      console.error('❌ Error accessing microphone:', error);
-      if (error.name === 'NotAllowedError') {
-        alert('Microphone access denied. Please allow microphone access in your browser settings.');
-      } else if (error.name === 'NotFoundError') {
-        alert('No microphone found. Please connect a microphone and try again.');
-      } else {
-        alert(`Could not access microphone: ${error.message}`);
-      }
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      alert('Không thể truy cập microphone. Vui lòng kiểm tra quyền truy cập.');
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (recognitionRef.current && !useBackendFallback) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+    } else if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -131,6 +132,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
 
+      console.log('📤 Đang gửi audio đến backend...');
       const response = await fetch(`${DEFAULT_BACKEND}/speech-to-text`, {
         method: 'POST',
         body: formData,
@@ -146,18 +148,16 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
       console.log('📝 Transcription result:', data);
       
       if (data.text) {
+        console.log('✅ Backend transcription:', data.text);
         onTranscription(data.text);
         console.log('✅ Transcription successful:', data.text);
       } else if (data.error) {
-        console.error('❌ Transcription error:', data.error);
-        alert(`Failed to transcribe audio: ${data.error}`);
-      } else {
-        console.warn('⚠️ Empty transcription received');
-        alert('No speech detected. Please try again and speak clearly.');
+        console.error('Transcription error:', data.error);
+        alert('Không thể nhận diện giọng nói. Vui lòng thử lại.');
       }
-    } catch (error: any) {
-      console.error('❌ Error sending audio:', error);
-      alert(`Failed to process audio: ${error.message}\n\nMake sure the backend is running on ${DEFAULT_BACKEND}`);
+    } catch (error) {
+      console.error('Error sending audio:', error);
+      alert('Lỗi kết nối đến server. Vui lòng thử lại.');
     } finally {
       setIsProcessing(false);
     }
@@ -188,7 +188,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
         </svg>
       ) : (
         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+          <path d="M10 2a4 4 0 00-4 4v4a4 4 0 008 0V6a4 4 0 00-4-4zM8 6a2 2 0 114 0v4a2 2 0 11-4 0V6zM4.5 12.5A.5.5 0 015 12a5 5 0 0010 0 .5.5 0 011 0 6 6 0 01-5.5 5.975V20h3a.5.5 0 010 1h-7a.5.5 0 010-1h3v-2.025A6 6 0 014 12a.5.5 0 01.5-.5z" />
         </svg>
       )}
     </button>
