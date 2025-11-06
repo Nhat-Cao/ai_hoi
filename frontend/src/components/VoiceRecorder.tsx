@@ -8,11 +8,69 @@ interface VoiceRecorderProps {
 const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [useBackendFallback, setUseBackendFallback] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
   const startRecording = async () => {
+    // Try Web Speech API first
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (SpeechRecognition && !useBackendFallback) {
+      startWebSpeechRecognition();
+    } else {
+      // Fallback to MediaRecorder + Backend
+      await startMediaRecorderFallback();
+    }
+  };
+
+  const startWebSpeechRecognition = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'vi-VN'; // Vietnamese
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      setIsRecording(true);
+      console.log('🎤 Đang ghi âm (Web Speech API)...');
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      console.log('📝 Nhận diện được:', transcript);
+      onTranscription(transcript);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('❌ Lỗi Web Speech API:', event.error);
+      setIsRecording(false);
+      
+      if (event.error === 'not-allowed') {
+        alert('Vui lòng cho phép truy cập microphone trong cài đặt trình duyệt.');
+      } else if (event.error === 'no-speech') {
+        alert('Không phát hiện giọng nói. Vui lòng thử lại.');
+      } else {
+        // Automatically switch to backend fallback
+        console.log('🔄 Tự động chuyển sang backend fallback...');
+        setUseBackendFallback(true);
+        setTimeout(() => startMediaRecorderFallback(), 100);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+      console.log('🛑 Kết thúc ghi âm');
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  const startMediaRecorderFallback = async () => {
     try {
+      console.log('🎤 Sử dụng backend fallback...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
@@ -36,12 +94,15 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
       setIsRecording(true);
     } catch (error) {
       console.error('Error accessing microphone:', error);
-      alert('Could not access microphone. Please check permissions.');
+      alert('Không thể truy cập microphone. Vui lòng kiểm tra quyền truy cập.');
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (recognitionRef.current && !useBackendFallback) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+    } else if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -53,6 +114,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.wav');
 
+      console.log('📤 Đang gửi audio đến backend...');
       const response = await fetch(`${DEFAULT_BACKEND}/speech-to-text`, {
         method: 'POST',
         body: formData,
@@ -60,14 +122,15 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
 
       const data = await response.json();
       if (data.text) {
+        console.log('✅ Backend transcription:', data.text);
         onTranscription(data.text);
       } else if (data.error) {
         console.error('Transcription error:', data.error);
-        alert('Failed to transcribe audio. Please try again.');
+        alert('Không thể nhận diện giọng nói. Vui lòng thử lại.');
       }
     } catch (error) {
       console.error('Error sending audio:', error);
-      alert('Failed to process audio. Please try again.');
+      alert('Lỗi kết nối đến server. Vui lòng thử lại.');
     } finally {
       setIsProcessing(false);
     }
@@ -98,7 +161,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
         </svg>
       ) : (
         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+          <path d="M10 2a4 4 0 00-4 4v4a4 4 0 008 0V6a4 4 0 00-4-4zM8 6a2 2 0 114 0v4a2 2 0 11-4 0V6zM4.5 12.5A.5.5 0 015 12a5 5 0 0010 0 .5.5 0 011 0 6 6 0 01-5.5 5.975V20h3a.5.5 0 010 1h-7a.5.5 0 010-1h3v-2.025A6 6 0 014 12a.5.5 0 01.5-.5z" />
         </svg>
       )}
     </button>
