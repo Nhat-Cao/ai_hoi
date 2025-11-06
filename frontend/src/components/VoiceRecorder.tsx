@@ -13,19 +13,84 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      console.log('🎤 Requesting microphone access...');
+      
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Your browser does not support audio recording. Please use a modern browser like Chrome, Firefox, or Edge.');
+      }
+
+      // List available audio input devices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter(device => device.kind === 'audioinput');
+      console.log('🎙️ Available microphones:', audioInputs.map(d => ({
+        label: d.label || 'Unknown device',
+        deviceId: d.deviceId
+      })));
+
+      // Request ONLY microphone audio, not desktop/tab audio
+      // Use default microphone (user can select in browser settings)
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1, // Mono for better speech recognition
+          sampleRate: 48000, // Higher quality
+          sampleSize: 16
+        },
+        video: false  // Explicitly no video
+      });
+      
+      console.log('✅ Microphone access granted');
+      const audioTrack = stream.getAudioTracks()[0];
+      console.log('🎙️ Using microphone:', audioTrack.label);
+      console.log('🎙️ Audio settings:', audioTrack.getSettings());
+      
+      // Test audio levels
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      source.connect(analyser);
+      analyser.fftSize = 256;
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      
+      // Check audio level once
+      setTimeout(() => {
+        analyser.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        console.log('📊 Audio level test:', average.toFixed(2), '(should be > 0 when speaking)');
+        if (average < 1) {
+          console.warn('⚠️ WARNING: Very low audio level detected. Microphone might not be working!');
+        }
+      }, 500);
+      
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm'
+      });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
+          console.log('📊 Audio chunk received:', event.data.size, 'bytes');
           audioChunksRef.current.push(event.data);
         }
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        console.log('🔊 Recording stopped. Total size:', audioBlob.size, 'bytes');
+        console.log('📦 Audio format:', audioBlob.type);
+        
+        // Check blob size
+        if (audioBlob.size < 1000) {
+          console.error('❌ Audio blob is too small (< 1KB). Recording might have failed.');
+          alert('Recording failed: Audio data is too small. Please check your microphone settings and try again.');
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        
         await sendAudioToBackend(audioBlob);
         
         // Stop all tracks
@@ -34,9 +99,16 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
 
       mediaRecorder.start();
       setIsRecording(true);
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      alert('Could not access microphone. Please check permissions.');
+      console.log('🔴 Recording started');
+    } catch (error: any) {
+      console.error('❌ Error accessing microphone:', error);
+      if (error.name === 'NotAllowedError') {
+        alert('Microphone access denied. Please allow microphone access in your browser settings.');
+      } else if (error.name === 'NotFoundError') {
+        alert('No microphone found. Please connect a microphone and try again.');
+      } else {
+        alert(`Could not access microphone: ${error.message}`);
+      }
     }
   };
 
@@ -50,24 +122,42 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
   const sendAudioToBackend = async (audioBlob: Blob) => {
     setIsProcessing(true);
     try {
+      console.log('📤 Sending audio to backend...', {
+        size: audioBlob.size,
+        type: audioBlob.type,
+        backend: DEFAULT_BACKEND
+      });
+      
       const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.wav');
+      formData.append('audio', audioBlob, 'recording.webm');
 
       const response = await fetch(`${DEFAULT_BACKEND}/speech-to-text`, {
         method: 'POST',
         body: formData,
       });
 
+      console.log('📥 Response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('📝 Transcription result:', data);
+      
       if (data.text) {
         onTranscription(data.text);
+        console.log('✅ Transcription successful:', data.text);
       } else if (data.error) {
-        console.error('Transcription error:', data.error);
-        alert('Failed to transcribe audio. Please try again.');
+        console.error('❌ Transcription error:', data.error);
+        alert(`Failed to transcribe audio: ${data.error}`);
+      } else {
+        console.warn('⚠️ Empty transcription received');
+        alert('No speech detected. Please try again and speak clearly.');
       }
-    } catch (error) {
-      console.error('Error sending audio:', error);
-      alert('Failed to process audio. Please try again.');
+    } catch (error: any) {
+      console.error('❌ Error sending audio:', error);
+      alert(`Failed to process audio: ${error.message}\n\nMake sure the backend is running on ${DEFAULT_BACKEND}`);
     } finally {
       setIsProcessing(false);
     }
