@@ -78,12 +78,24 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
+          console.log('📊 Audio chunk received:', event.data.size, 'bytes');
           audioChunksRef.current.push(event.data);
         }
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        console.log('🔊 Recording stopped. Total size:', audioBlob.size, 'bytes');
+        console.log('📦 Audio format:', audioBlob.type);
+        
+        // Check blob size
+        if (audioBlob.size < 1000) {
+          console.error('❌ Audio blob is too small (< 1KB). Recording might have failed.');
+          alert('Recording failed: Audio data is too small. Please check your microphone settings and try again.');
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        
         await sendAudioToBackend(audioBlob);
         
         // Stop all tracks
@@ -111,8 +123,14 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
   const sendAudioToBackend = async (audioBlob: Blob) => {
     setIsProcessing(true);
     try {
+      console.log('📤 Sending audio to backend...', {
+        size: audioBlob.size,
+        type: audioBlob.type,
+        backend: DEFAULT_BACKEND
+      });
+      
       const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.wav');
+      formData.append('audio', audioBlob, 'recording.webm');
 
       console.log('📤 Đang gửi audio đến backend...');
       const response = await fetch(`${DEFAULT_BACKEND}/speech-to-text`, {
@@ -120,10 +138,19 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
         body: formData,
       });
 
+      console.log('📥 Response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('📝 Transcription result:', data);
+      
       if (data.text) {
         console.log('✅ Backend transcription:', data.text);
         onTranscription(data.text);
+        console.log('✅ Transcription successful:', data.text);
       } else if (data.error) {
         console.error('Transcription error:', data.error);
         alert('Không thể nhận diện giọng nói. Vui lòng thử lại.');
