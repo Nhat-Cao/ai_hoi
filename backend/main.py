@@ -7,8 +7,11 @@ from openai import AzureOpenAI
 from dotenv import load_dotenv
 import tempfile
 from location import get_coordinates_from_text, get_location_from_coordinates, search_restaurants_as_string
-from typing import Optional
-from rag_chain import rag_chat as lc_rag_chat
+from typing import Optional, List
+from langchain_openai import AzureOpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from langchain_core.documents import Document
+from pinecone import Pinecone
 
 # ---------------------- Setup ----------------------
 load_dotenv()
@@ -42,6 +45,46 @@ class RAGChatRequest(BaseModel):
     namespace: Optional[str] = None
 
 # ---------------------- Helper ----------------------
+def get_rag_context(food: Optional[str] = None, place_text: Optional[str] = None) -> str:
+    """Get relevant context from knowledge base using food and location."""
+    try:
+        # Build search query from food and location
+        search_query = ""
+        if food:
+            search_query += f"{food} "
+        if place_text:
+            search_query += f"{place_text}"
+        if not search_query:
+            return ""
+
+        # Initialize embeddings using the same model as LLM
+        embeddings = AzureOpenAIEmbeddings(
+            azure_deployment=os.getenv("AZURE_OPENAI_MODEL_NAME"),
+            openai_api_version="2024-07-01-preview",
+            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+        )
+
+        # Get similar documents from Pinecone
+        pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+        vectorstore = PineconeVectorStore(
+            index_name=os.getenv("PINECONE_INDEX"),
+            embedding=embeddings
+        )
+
+        # Search and get text from similar documents
+        print(f"🔍 Searching knowledge base with: {search_query}")
+        docs = vectorstore.similarity_search(search_query, k=4)
+        if not docs:
+            return ""
+
+        # Return combined text from documents
+        return "\n".join(d.page_content for d in docs)
+
+    except Exception as e:
+        print(f"❌ Error getting RAG context: {e}")
+        return ""
+
 def extract_entities(input_text: str):
     """Use Azure OpenAI function calling to extract food and location info."""
     response = client.chat.completions.create(
@@ -80,11 +123,12 @@ def extract_entities(input_text: str):
 # ---------------------- Chat Logic ----------------------
 def gen_answer(user_input, current_location):
     """Main chat logic with context injection."""
+    # Extract food and location entities from user input
     food, place_text = extract_entities(user_input)
     print(f"🍜 Extracted food: {food}, location: {place_text}")
     
+    # Get location coordinates
     coords = None
-    # Determine coordinates
     if place_text not in [None, ""]:
         coords = get_coordinates_from_text(place_text)
     if coords is None and current_location not in [None, ""]:
@@ -92,11 +136,19 @@ def gen_answer(user_input, current_location):
     if coords is None and current_location in [None, ""]:
         return "Xin lỗi, tôi không thể xác định vị trí của bạn. Vui lòng cung cấp vị trí hợp lệ."
 
-    # Use Foursquare search to get nearby restaurants
-    nearby_restaurants = search_restaurants_as_string(coords["lat"], coords["lon"], food or "")
+    try:
+        # Get nearby restaurants from Foursquare
+        nearby_restaurants = search_restaurants_as_string(coords["lat"], coords["lon"], food or "")
 
-    # Compose context
-    context = f"Những nhà hàng liên quan ở gần đó:\n{nearby_restaurants}\n\nNgười dùng hỏi: {user_input}"
+        # Get relevant knowledge from database
+        kb_context = get_rag_context(food, place_text)
+        rag_part = f"\nThông tin từ cơ sở dữ liệu:\n{kb_context}\n" if kb_context else ""
+        
+        # Compose final context
+        context = f"{rag_part}Những nhà hàng gần đó:\n{nearby_restaurants}\n\nNgười dùng hỏi: {user_input}"
+    except Exception as e:
+        print(f"❌ Error preparing context: {e}")
+        context = f"Người dùng hỏi: {user_input}"
 
     response = client.chat.completions.create(
         model=os.getenv("AZURE_OPENAI_MODEL_NAME"),
@@ -123,10 +175,6 @@ app.add_middleware(
 @app.post("/chat")
 async def chat(message: ChatMessage):
     return {"message": gen_answer(message.text, message.location)}
-
-@app.post("/rag/chat")
-async def rag_chat(req: RAGChatRequest):
-    return {"message": lc_rag_chat(req.query, req.namespace)}
 
 @app.post("/location")
 async def reverse_geocode(location: Location):
@@ -181,6 +229,92 @@ async def text_to_speech(message: dict):
     except Exception as e:
         print(f"❌ Text-to-speech error: {e}")
         return Response(content=b"", media_type="audio/mpeg")
+
+async def process_lines(lines: List[str], embeddings: AzureOpenAIEmbeddings, pc: Pinecone):
+    """Process lines and save to Pinecone."""
+    try:
+        # Convert lines to embeddings in batches
+        batch_size = 32
+        for i in range(0, len(lines), batch_size):
+            batch = lines[i:i + batch_size]
+            # Get embeddings for batch
+            vectors = []
+            for j, text in enumerate(batch):
+                vector = {
+                    "id": f"doc-{i+j}",
+                    "values": embeddings.embed_query(text),
+                    "metadata": {"text": text}
+                }
+                vectors.append(vector)
+            
+            # Upsert to Pinecone
+            index = pc.Index(os.getenv("PINECONE_INDEX"))
+            index.upsert(vectors=vectors)
+            print(f"✅ Processed {len(vectors)} lines")
+        
+        return True
+    except Exception as e:
+        print(f"❌ Error processing lines: {e}")
+        return False
+
+@app.post("/ingest")
+async def ingest_data(file: UploadFile = File(...)):
+    """Ingest data from file (CSV, MD, JSONL) into knowledge base."""
+    try:
+        print(f"Processing file: {file.filename}")
+        content = await file.read()
+        text = content.decode('utf-8')
+        lines = []
+
+        # Process based on file type
+        if file.filename.endswith('.jsonl'):
+            import json
+            for i, line in enumerate(text.splitlines()):
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    # Format the text in a way that's useful for retrieval
+                    food_text = f"{data['ten_mon']} là món {data['loai_mon']} {data['khau_vi']} ở {data['khu_vuc']}. {data['dac_diem']} Món này phù hợp với {data['doi_tuong_phu_hop']}, thường được ăn vào {data['thoi_gian_phu_hop']}, đặc biệt là trong {data['thoi_tiet_phu_hop']}. Giá tham khảo: {data['gia_tham_khao']}đ."
+                    lines.append(food_text)
+                    print(f"Processed line {i+1}: {data['ten_mon']}")
+                except Exception as e:
+                    print(f"Error processing JSON line {i+1}: {e}")
+                    continue
+        elif file.filename.endswith('.csv'):
+            for line in text.splitlines():
+                if not line.strip():
+                    continue
+                lines.append(line)
+        elif file.filename.endswith('.md'):
+            # Split markdown by paragraphs
+            lines = [p for p in text.split('\\n\\n') if p.strip()]
+        else:
+            return {"error": "Unsupported file type. Please upload CSV, MD, or JSONL."}
+
+        if not lines:
+            return {"error": "No valid content found in file."}
+
+        # Initialize Azure OpenAI embeddings
+        embeddings = AzureOpenAIEmbeddings(
+            azure_deployment=os.getenv("AZURE_OPENAI_MODEL_NAME"),
+            openai_api_version="2024-07-01-preview",
+            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+        )
+        
+        # Initialize Pinecone
+        pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+        
+        # Process and save to DB
+        if await process_lines(lines, embeddings, pc):
+            return {"message": f"Successfully processed {len(lines)} lines"}
+        else:
+            return {"error": "Error processing file"}
+
+    except Exception as e:
+        print(f"❌ Error in ingest endpoint: {e}")
+        return {"error": str(e)}
 
 @app.get("/")
 async def root():
