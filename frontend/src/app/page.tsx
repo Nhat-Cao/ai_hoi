@@ -7,7 +7,7 @@ import MessageInput from '@/components/MessageInput';
 import { getUserLocation, sendChatMessage } from '@/service/api';
 
 export default function Home() {
-  const [messages, setMessages] = useState<Array<{ id: string; role: 'user' | 'bot'; text: string }>>([{
+  const [messages, setMessages] = useState<Array<{ id: string; role: 'user' | 'bot'; text: string; isTyping?: boolean }>>([{
     id: 'sys',
     role: 'bot',
     text: 'Xin chào! Hãy hỏi tôi về món ăn và nhà hàng quanh bạn.'
@@ -26,18 +26,26 @@ export default function Home() {
       text: inputText.trim()
     };
 
+    const typingMessage = {
+      id: 'typing',
+      role: 'bot' as const,
+      text: '',
+      isTyping: true
+    };
+
     setMessages(prev => [...prev, newMessage]);
     setInputText('');
     setSending(true);
 
     try {
+      setMessages(prev => [...prev, typingMessage]);
       const data = await sendChatMessage(newMessage.text, currentLocation || "");
       
-      setMessages(prev => [...prev, {
+      setMessages(prev => prev.filter(msg => msg.id !== 'typing').concat({
         id: Date.now().toString(),
         role: 'bot',
         text: data.message
-      }]);
+      }));
     } catch (error) {
       console.error('Error sending message:', error);
     } finally {
@@ -71,7 +79,7 @@ export default function Home() {
 
     {/* Chat area */}
     <div className="flex-1 overflow-y-auto no-scrollbar px-3 sm:px-[15%] md:px-[20%] lg:px-[25%]">
-      <MessageList messages={messages} listRef={listRef} />
+      <MessageList messages={messages} listRef={listRef}/>
     </div>
 
     {/* Input area */}

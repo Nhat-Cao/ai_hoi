@@ -35,13 +35,27 @@ export async function getUserLocation() {
 }
 
 export async function sendChatMessage(text: string, location: string = "") {
-  const res = await fetch(`${DEFAULT_BACKEND}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, location })
-  });
-  if (!res.ok) throw new Error('Network response was not ok');
-  return res.json();
+  try {
+    console.log('Sending request to:', `${DEFAULT_BACKEND}/chat`);
+    console.log('Request payload:', { text, location });
+    
+    const res = await fetch(`${DEFAULT_BACKEND}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, location })
+    });
+    
+    if (!res.ok) {
+      const errorData = await res.text();
+      console.error('Server error:', errorData);
+      throw new Error(`Server error: ${res.status} - ${errorData}`);
+    }
+    
+    return res.json();
+  } catch (error) {
+    console.error('Network or parsing error:', error);
+    throw error;
+  }
 }
 
 export { DEFAULT_BACKEND };

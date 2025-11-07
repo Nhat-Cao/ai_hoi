@@ -133,7 +133,14 @@ app.add_middleware(
 
 @app.post("/chat")
 async def chat(message: ChatMessage):
-    return {"message": gen_answer(message.text, message.location)}
+    print(f"📝 Received chat request: {message.dict()}")
+    try:
+        answer = gen_answer(message.text, message.location)
+        print(f"✅ Generated answer successfully")
+        return {"message": answer}
+    except Exception as e:
+        print(f"❌ Error generating answer: {str(e)}")
+        raise
 
 @app.post("/location")
 async def reverse_geocode(location: Location):

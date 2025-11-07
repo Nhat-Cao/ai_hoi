@@ -5,6 +5,7 @@ interface Message {
   id: string;
   role: 'user' | 'bot';
   text: string;
+  isTyping?: boolean;
 }
 
 interface MessageListProps {
@@ -13,10 +14,11 @@ interface MessageListProps {
 }
 
 export default function MessageList({ messages, listRef }: MessageListProps) {
+
   return (
     <div ref={listRef} className="p-3 flex flex-col overflow-y-auto">
       {messages.map((item) => (
-        <MessageBubble key={item.id} role={item.role} text={item.text} />
+        <MessageBubble key={item.id} role={item.role} text={item.text} isTyping={item.isTyping} />
       ))}
     </div>
   );
