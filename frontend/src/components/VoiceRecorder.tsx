@@ -174,7 +174,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onTranscription }) => {
           : isProcessing
           ? 'bg-gray-600 cursor-not-allowed'
           : 'bg-orange-400 hover:bg-orange-300'
-      } text-white focus:outline-none`}
+      } text-[#0b1b33] focus:outline-none`}
       title={isRecording ? 'Stop recording' : 'Start voice input'}
     >
       {isProcessing ? (
