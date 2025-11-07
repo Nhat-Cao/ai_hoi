@@ -8,7 +8,7 @@ export default function TypingIndicator() {
   useEffect(() => {
     const interval = setInterval(() => {
       setDots(prev => {
-        if (prev.length >= 3) return '';
+        if (prev.length >= 3) return '•';
         return prev + '•';
       });
     }, 500);
