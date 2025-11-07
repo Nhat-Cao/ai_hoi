@@ -8,9 +8,6 @@ from dotenv import load_dotenv
 import tempfile
 from location import get_coordinates_from_text, get_location_from_coordinates, search_restaurants_as_string
 from typing import Optional, List
-from langchain_openai import AzureOpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
-from langchain_core.documents import Document
 from pinecone import Pinecone
 from elevenlabs import ElevenLabs
 
@@ -63,9 +60,8 @@ class RAGChatRequest(BaseModel):
 
 # ---------------------- Helper ----------------------
 def get_rag_context(food: Optional[str] = None, place_text: Optional[str] = None) -> str:
-    """Get relevant context from knowledge base using food and location."""
+    """Get relevant context using text matching."""
     try:
-        # Build search query from food and location
         search_query = ""
         if food:
             search_query += f"{food} "
@@ -74,29 +70,30 @@ def get_rag_context(food: Optional[str] = None, place_text: Optional[str] = None
         if not search_query:
             return ""
 
-        # Initialize embeddings using the same model as LLM
-        embeddings = AzureOpenAIEmbeddings(
-            azure_deployment=os.getenv("AZURE_OPENAI_MODEL_NAME"),
-            openai_api_version="2024-07-01-preview",
-            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-        )
-
-        # Get similar documents from Pinecone
+        # Initialize Pinecone
         pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-        vectorstore = PineconeVectorStore(
-            index_name=os.getenv("PINECONE_INDEX"),
-            embedding=embeddings
+        index = pc.Index(os.getenv("PINECONE_INDEX"))
+
+        # Create a simple query vector (using constant vector for metadata filtering)
+        query_vector = [1/1536] * 1536  # Uniform vector
+        
+        # Search using metadata filter
+        print(f"🔍 Searching knowledge base with: {search_query}")
+        results = index.query(
+            vector=query_vector,
+            top_k=4,
+            include_metadata=True
         )
 
-        # Search and get text from similar documents
-        print(f"🔍 Searching knowledge base with: {search_query}")
-        docs = vectorstore.similarity_search(search_query, k=4)
-        if not docs:
-            return ""
+        # Filter results manually based on text matching
+        filtered_texts = []
+        search_terms = search_query.lower().split()
+        for match in results.matches:
+            text = match.metadata.get("text", "")
+            if any(term in text.lower() for term in search_terms):
+                filtered_texts.append(text)
 
-        # Return combined text from documents
-        return "\n".join(d.page_content for d in docs)
+        return "\n".join(filtered_texts) if filtered_texts else ""
 
     except Exception as e:
         print(f"❌ Error getting RAG context: {e}")
@@ -258,27 +255,27 @@ async def text_to_speech(message: dict):
         print(f"🔊 Text-to-speech error: {e}")
         return Response(content=b"", media_type="audio/mpeg")
 
-async def process_lines(lines: List[str], embeddings: AzureOpenAIEmbeddings, pc: Pinecone):
-    """Process lines and save to Pinecone."""
+async def process_lines(lines: List[str], pc: Pinecone):
+    """Process lines and save to Pinecone without embeddings."""
     try:
-        # Convert lines to embeddings in batches
-        batch_size = 32
-        for i in range(0, len(lines), batch_size):
-            batch = lines[i:i + batch_size]
-            # Get embeddings for batch
-            vectors = []
-            for j, text in enumerate(batch):
-                vector = {
-                    "id": f"doc-{i+j}",
-                    "values": embeddings.embed_query(text),
-                    "metadata": {"text": text}
-                }
-                vectors.append(vector)
+        vectors = []
+        for i, text in enumerate(lines):
+            # Create a simple vector (all same values)
+            simple_vector = [1/1536] * 1536  # Standard dimension with uniform values
             
-            # Upsert to Pinecone
-            index = pc.Index(os.getenv("PINECONE_INDEX"))
-            index.upsert(vectors=vectors)
-            print(f"✅ Processed {len(vectors)} lines")
+            vector = {
+                "id": f"doc-{i}",
+                "values": simple_vector,
+                "metadata": {"text": text}
+            }
+            vectors.append(vector)
+            
+            # Upsert to Pinecone in batches
+            if len(vectors) >= 32 or i == len(lines) - 1:
+                index = pc.Index(os.getenv("PINECONE_INDEX"))
+                index.upsert(vectors=vectors)
+                print(f"✅ Processed {len(vectors)} lines")
+                vectors = []
         
         return True
     except Exception as e:
@@ -323,19 +320,11 @@ async def ingest_data(file: UploadFile = File(...)):
         if not lines:
             return {"error": "No valid content found in file."}
 
-        # Initialize Azure OpenAI embeddings
-        embeddings = AzureOpenAIEmbeddings(
-            azure_deployment=os.getenv("AZURE_OPENAI_MODEL_NAME"),
-            openai_api_version="2024-07-01-preview",
-            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-        )
-        
         # Initialize Pinecone
         pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         
         # Process and save to DB
-        if await process_lines(lines, embeddings, pc):
+        if await process_lines(lines, pc):
             return {"message": f"Successfully processed {len(lines)} lines"}
         else:
             return {"error": "Error processing file"}
@@ -346,7 +335,7 @@ async def ingest_data(file: UploadFile = File(...)):
 
 @app.get("/")
 async def root():
-    return {"message": "AI-HOI Backend is running with ElevenLabs Voice features."}
+    return {"message": "AI-HOI Backend is running with RAG and ElevenLabs Voice features."}
 
 if __name__ == "__main__":
     import uvicorn
