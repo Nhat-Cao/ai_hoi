@@ -1,13 +1,14 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
+from markdown_helper import parse_restaurant_markdown, restaurant_to_text
 import os 
 from openai import AzureOpenAI
 from dotenv import load_dotenv
-import tempfile
-from location import get_coordinates_from_text, get_location_from_coordinates, search_restaurants_as_string
+from location_helper import get_coordinates_from_text, get_location_from_coordinates, search_restaurants_as_string
 from elevenlabs import ElevenLabs
+from db_helper import query_data, upsert_data
 
 # ---------------------- Setup ----------------------
 load_dotenv()
@@ -40,6 +41,7 @@ system_message = {
     Provide detailed, engaging, and location-aware food and restaurant reviews.
     Each restaurant recommendation should include specific address if any.
     Always answer in Vietnamese.
+    You will be provided data from database and nearby restaurant search to help you answer better.
     """
 }
 
@@ -94,6 +96,17 @@ def gen_answer(user_input, current_location):
     food, place_text = extract_entities(user_input)
     print(f"🍜 Extracted food: {food}, location: {place_text}")
     
+    context = ""
+    if ((food is not None or food != "") or (place_text is not None or place_text != "")):
+        query = f"'{food}' '{place_text}'."
+        results = query_data(query, top_k=5, namespace="restaurants")
+        if results and len(results) > 0:
+            context += "Thông tin tham khảo từ cơ sở dữ liệu:\n"
+            for res in results:
+                context += f"- {res}\n"
+            context += "\n"
+        print(f"🗄️ Retrieved {len(results)} context entries from DB.")
+    
     coords = None
     # Determine coordinates
     if place_text not in [None, ""]:
@@ -107,8 +120,8 @@ def gen_answer(user_input, current_location):
     nearby_restaurants = search_restaurants_as_string(coords["lat"], coords["lon"], food or "")
 
     # Compose context
-    context = f"Những nhà hàng liên quan ở gần đó:\n{nearby_restaurants}\n\nNgười dùng hỏi: {user_input}"
-
+    context += f"Những nhà hàng liên quan ở gần đó:\n{nearby_restaurants}\n\nNgười dùng hỏi: {user_input}"
+    print(f"🗒️ Context for LLM:\n{context}")
     response = client.chat.completions.create(
         model=os.getenv("AZURE_OPENAI_MODEL_NAME"),
         messages=[
@@ -206,6 +219,43 @@ async def text_to_speech(message: dict):
     except Exception as e:
         print(f"🔊 Text-to-speech error: {e}")
         return Response(content=b"", media_type="audio/mpeg")
+    
+
+
+class MarkdownData(BaseModel):
+    content: str
+    namespace: str = "restaurants"
+
+@app.post("/ingest-restaurants")
+async def ingest_restaurants(data: MarkdownData):
+    """
+    Ingest restaurants data from markdown text into the vector database.
+    The markdown should follow the specified format with ## headers for each restaurant.
+    """
+    try:
+        # Parse markdown content
+        restaurants = parse_restaurant_markdown(data.content)
+        if not restaurants:
+            raise HTTPException(status_code=400, detail="No restaurant information found in the markdown")
+        
+        # Store each restaurant in the database
+        success_count = 0
+        for restaurant in restaurants:
+            text = restaurant_to_text(restaurant)
+            if upsert_data(text, namespace="restaurants"):
+                success_count += 1
+        
+        return JSONResponse(
+            content={
+                "message": f"Successfully ingested {success_count} restaurants into the database",
+                "total_processed": len(restaurants),
+                "successful": success_count
+            },
+            status_code=200
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing markdown: {str(e)}")
 
 @app.get("/")
 async def root():
