@@ -60,7 +60,7 @@ def extract_entities(input_text: str):
         messages=[
             {"role": "system", "content": """Extract structured text data from user requests about food and location.
              If user don't mention a specific dish, return None for food property.
-             If user says “nearby”, “gần tôi”, “around me”, or somethings similar and no specific location provided. Return None for location property."""},
+             If user says "nearby", "gần tôi", "around me", "gần đây" or somethings similar or no specific location provided. Return None for location property."""},
             {"role": "user", "content": input_text}
         ],
         functions=[
@@ -70,8 +70,8 @@ def extract_entities(input_text: str):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "food": {"type": "string", "description": "Food or dish name mentioned"},
-                        "location": {"type": "string", "description": "Location mentioned in text"},
+                        "food": {"type": "string", "description": "Food or dish name mentioned, if no food mentioned, return null/None"},
+                        "location": {"type": "string", "description": "Location mentioned in text, If user says 'nearby', 'gần tôi', 'around me', 'gần đây', 'near me' or somethings similar or no specific location provided, return null/None"},
                     },
                     "required": []
                 }
