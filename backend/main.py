@@ -184,11 +184,11 @@ async def text_to_speech(message: dict):
         if not text:
             return Response(content=b"", media_type="audio/mpeg")
         
-        # Use ElevenLabs TTS with multilingual v2 model for better Vietnamese support
+        # Use ElevenLabs TTS with turbo v2.5 model (v3) for better Vietnamese support
         audio_generator = elevenlabs_client.text_to_speech.convert(
             text=text,
-            voice_id="pNInz6obpgDQGcFmaJgB",  # Adam voice - clear and natural for Vietnamese
-            model_id="eleven_multilingual_v2",  # Optimized for Vietnamese language
+            voice_id="deC6NEXcbavaVWbzjgzb",
+            model_id="eleven_v3",  # Human-like and expressive speech generation
             output_format="mp3_44100_128",
             voice_settings={
                 "stability": 0.5,  # Balanced stability for clear Vietnamese pronunciation
