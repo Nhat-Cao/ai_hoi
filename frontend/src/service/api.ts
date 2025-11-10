@@ -34,15 +34,19 @@ export async function getUserLocation() {
   }
 }
 
-export async function sendChatMessage(text: string, location: string = "") {
+export async function sendChatMessage(
+  text: string, 
+  location: string = "",
+  history: Array<{ role: string; content: string }> = []
+) {
   try {
     console.log('Sending request to:', `${DEFAULT_BACKEND}/chat`);
-    console.log('Request payload:', { text, location });
+    console.log('Request payload:', { text, location, history });
     
     const res = await fetch(`${DEFAULT_BACKEND}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, location })
+      body: JSON.stringify({ text, location, history })
     });
     
     if (!res.ok) {

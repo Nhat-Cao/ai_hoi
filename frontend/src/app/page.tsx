@@ -39,7 +39,17 @@ export default function Home() {
 
     try {
       setMessages(prev => [...prev, typingMessage]);
-      const data = await sendChatMessage(newMessage.text, currentLocation || "");
+      
+      // Build conversation history (exclude system message and typing indicator)
+      const history = messages
+        .filter(msg => msg.id !== 'sys' && msg.id !== 'typing')
+        .map(msg => ({
+          role: msg.role === 'user' ? 'user' : 'assistant',
+          content: msg.text
+        }));
+      
+      const data = await sendChatMessage(newMessage.text, currentLocation || "", history);
+     
       
       setMessages(prev => prev.filter(msg => msg.id !== 'typing').concat({
         id: Date.now().toString(),

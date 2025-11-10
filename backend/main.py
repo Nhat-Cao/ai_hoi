@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 from location_helper import get_coordinates_from_text, get_location_from_coordinates, search_restaurants_as_string
 from elevenlabs import ElevenLabs
 from db_helper import query_data, upsert_data
+from pinecone import Pinecone, ServerlessSpec
+from datetime import datetime
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 # ---------------------- Setup ----------------------
 load_dotenv()
@@ -31,8 +36,63 @@ client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
 )
 
+# Initialize embedding client
+embedding_client = AzureOpenAI(
+    api_version="2024-07-01-preview",
+    azure_endpoint=os.getenv("AZURE_EMBEDDING_ENDPOINT"),
+    api_key=os.getenv("AZURE_EMBEDDING_API_KEY"),
+)
+
 # Initialize ElevenLabs client
 elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+
+# Initialize Pinecone
+try:
+    pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+    index_name = "ai-hoi-conversations"
+
+    # Create index if it doesn't exist (text-embedding-3-small has 1536 dimensions)
+    if index_name not in pc.list_indexes().names():
+        pc.create_index(
+            name=index_name,
+            dimension=1536,  # text-embedding-3-small dimension
+            metric="cosine",
+            spec=ServerlessSpec(cloud="aws", region="us-east-1")
+        )
+
+    # Connect to the index
+    index = pc.Index(index_name)
+    print("✅ Pinecone initialized successfully")
+except Exception as e:
+    print(f"⚠️ Pinecone initialization failed: {e}")
+    index = None
+
+# Initialize LangChain components
+try:
+    llm = AzureChatOpenAI(
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        api_version="2024-07-01-preview",
+        model=os.getenv("AZURE_OPENAI_MODEL_NAME"),
+        temperature=0.7
+    )
+    print("✅ LangChain LLM initialized successfully")
+except Exception as e:
+    print(f"⚠️ LangChain initialization failed: {e}")
+    llm = None
+    embeddings = None
+
+# Create LangChain prompt template
+prompt_template = ChatPromptTemplate.from_messages([
+    SystemMessage(content="""You are an expert Vietnamese food reviewer.
+    Provide detailed, engaging, and location-aware food and restaurant reviews.
+    Each restaurant recommendation should include specific address if any.
+    Always answer in Vietnamese.
+    
+    You have access to similar past conversations to provide better context and recommendations."""),
+    ("system", "Các cuộc hội thoại tương tự từ quá khứ:\n{similar_conversations}"),
+    ("human", "{context}")
+])
 
 system_message = {
     "role": "system",
@@ -47,15 +107,238 @@ system_message = {
 }
 
 # ---------------------- Models ----------------------
+class Message(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
 class ChatMessage(BaseModel):
     text: str
     location: str  # current location text, e.g. "10.762622,106.660172"
+    history: list[Message] = []  # Conversation history
 
 class Location(BaseModel):
     lat: float
     lon: float
 
 # ---------------------- Helper ----------------------
+def summarize_conversation(messages: list):
+    """Summarize conversation using Azure OpenAI for better context storage."""
+    if len(messages) < 2:
+        return None
+    
+    # Messages are already dicts with 'role' and 'content' keys
+    conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
+    
+    summary_prompt = f"""Tóm tắt cuộc hội thoại sau thành một đoạn văn ngắn gọn, 
+    bao gồm: món ăn được đề cập, địa điểm, và các nhà hàng được gợi ý.
+    
+    Cuộc hội thoại:
+    {conversation_text}
+    
+    Tóm tắt (1-2 câu):"""
+    
+    try:
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_MODEL_NAME"),
+            messages=[{"role": "user", "content": summary_prompt}],
+            temperature=0.5,
+            max_tokens=150
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"❌ Error summarizing conversation: {e}")
+        return None
+
+def save_conversation_to_pinecone(conversation_history: list, location: str):
+    """Save conversation summary to Pinecone - append to single vector."""
+    if not index:
+        print("⚠️ Pinecone not available, skipping save")
+        return
+    
+    try:
+        # Generate summary
+        summary = summarize_conversation(conversation_history)
+        if not summary:
+            print("⚠️ No summary generated, skipping Pinecone save")
+            return
+        
+        print(f"📝 Summary: {summary}")
+        
+        # Use a fixed ID for all conversations
+        conversation_id = "all-conversations"
+        
+        import json
+        
+        # Try to fetch existing vector to append to it
+        try:
+            existing = index.fetch(ids=[conversation_id])
+            if conversation_id in existing.vectors:
+                # Get existing metadata
+                existing_metadata = existing.vectors[conversation_id].metadata or {}
+                existing_summaries_json = existing_metadata.get("summaries_json", "[]")
+                existing_summaries = json.loads(existing_summaries_json)
+                
+                # Append new summary
+                existing_summaries.append({
+                    "summary": summary,
+                    "location": location,
+                    "timestamp": datetime.now().isoformat(),
+                    "message_count": len(conversation_history),
+                    "user_prompts": [msg['content'] for msg in conversation_history if msg['role'] == 'user']
+                })
+                
+                # Create combined text for embedding
+                combined_text = "\n".join([s["summary"] for s in existing_summaries])
+                
+                # Generate new embedding from combined text
+                embedding_response = embedding_client.embeddings.create(
+                    model=os.getenv("AZURE_EMBEDDING_MODEL"),
+                    input=combined_text
+                )
+                embedding = embedding_response.data[0].embedding
+                
+                # Create overall summary from all conversations
+                # Collect all user prompts for trend analysis
+                all_user_prompts = []
+                for s in existing_summaries:
+                    all_user_prompts.extend(s.get("user_prompts", []))
+                
+                overall_summary_prompt = f"""Phân tích và tóm tắt tổng hợp từ tất cả các cuộc hội thoại sau thành một đoạn văn (10-15 câu),
+                ĐẶC BIỆT CHÚ TRỌNG phân tích xu hướng và sở thích của người dùng dựa trên các câu hỏi của họ.
+                
+                Bao gồm chi tiết:
+                1. Các món ăn phổ biến được hỏi nhiều nhất
+                2. Các địa điểm thường xuyên
+                3. Xu hướng sở thích ẩm thực của người dùng (món Việt, món nước ngoài, đồ ăn vặt, v.v.)
+                4. Thói quen tìm kiếm (thích ăn gần, hay tìm quán xa, tìm theo món hay theo địa điểm)
+                5. Các nhà hàng được gợi ý và phản hồi
+                
+                Các cuộc hội thoại đã tóm tắt:
+                {combined_text}
+                
+                CÁC CÂU HỎI CỦA NGƯỜI DÙNG (quan trọng nhất để phân tích sở thích):
+                {chr(10).join(all_user_prompts)}
+                
+                Tóm tắt tổng hợp (8-10 câu, tập trung vào xu hướng từ câu hỏi người dùng):"""
+                
+                try:
+                    overall_response = client.chat.completions.create(
+                        model=os.getenv("AZURE_OPENAI_MODEL_NAME"),
+                        messages=[{"role": "user", "content": overall_summary_prompt}],
+                        temperature=0.5,
+                        max_tokens=400
+                    )
+                    overall_summary = overall_response.choices[0].message.content.strip()
+                except Exception as e:
+                    print(f"⚠️ Error creating overall summary: {e}")
+                    overall_summary = summary  # Fallback to latest summary
+                
+                # Update metadata (store as JSON string)
+                metadata = {
+                    "summaries_json": json.dumps(existing_summaries),
+                    "total_conversations": len(existing_summaries),
+                    "last_updated": datetime.now().isoformat(),
+                    "latest_summary": overall_summary,  # Overall summary of all conversations
+                    "latest_location": location
+                }
+                
+                print(f"📚 Appending to existing vector (total: {len(existing_summaries)} conversations)")
+            else:
+                # First conversation - create initial vector
+                embedding_response = embedding_client.embeddings.create(
+                    model=os.getenv("AZURE_EMBEDDING_MODEL"),
+                    input=summary
+                )
+                embedding = embedding_response.data[0].embedding
+                
+                summaries = [{
+                    "summary": summary,
+                    "location": location,
+                    "timestamp": datetime.now().isoformat(),
+                    "message_count": len(conversation_history),
+                    "user_prompts": [msg['content'] for msg in conversation_history if msg['role'] == 'user']
+                }]
+                
+                metadata = {
+                    "summaries_json": json.dumps(summaries),
+                    "total_conversations": 1,
+                    "last_updated": datetime.now().isoformat(),
+                    "latest_summary": summary,
+                    "latest_location": location
+                }
+                
+                print(f"📝 Creating first conversation vector")
+        except Exception as fetch_error:
+            print(f"⚠️ Fetch error (creating new): {fetch_error}")
+            # First time - create initial vector
+            embedding_response = embedding_client.embeddings.create(
+                model=os.getenv("AZURE_EMBEDDING_MODEL"),
+                input=summary
+            )
+            embedding = embedding_response.data[0].embedding
+            
+            summaries = [{
+                "summary": summary,
+                "location": location,
+                "timestamp": datetime.now().isoformat(),
+                "message_count": len(conversation_history),
+                "user_prompts": [msg['content'] for msg in conversation_history if msg['role'] == 'user']
+            }]
+            
+            metadata = {
+                "summaries_json": json.dumps(summaries),
+                "total_conversations": 1,
+                "last_updated": datetime.now().isoformat(),
+                "latest_summary": summary,
+                "latest_location": location
+            }
+            
+            print(f"📝 Creating first conversation vector")
+        
+        # Upsert (update or insert) the single vector
+        index.upsert(vectors=[{
+            "id": conversation_id,
+            "values": embedding,
+            "metadata": metadata
+        }])
+        
+        print(f"✅ Updated conversation vector (ID: {conversation_id})")
+        
+    except Exception as e:
+        print(f"❌ Error saving to Pinecone: {e}")
+
+def retrieve_similar_conversations(query: str, top_k: int = 3):
+    """Retrieve overall summary of all conversations from Pinecone."""
+    if not index:
+        print("⚠️ Pinecone not available")
+        return "Không có cuộc hội thoại tương tự từ trước."
+    
+    try:
+        import json
+        
+        # Fetch the single vector containing all conversations
+        conversation_id = "all-conversations"
+        existing = index.fetch(ids=[conversation_id])
+        
+        if conversation_id not in existing.vectors:
+            print("📭 No conversation history found")
+            return "Không có cuộc hội thoại tương tự từ trước."
+        
+        # Get overall summary from metadata
+        metadata = existing.vectors[conversation_id].metadata
+        latest_summary = metadata.get("latest_summary", "")
+        total_conversations = metadata.get("total_conversations", 0)
+        
+        if not latest_summary:
+            return "Không có cuộc hội thoại tương tự từ trước."
+        
+        print(f"📚 Retrieved overall summary from {total_conversations} conversations")
+        return f"Tóm tắt từ {total_conversations} cuộc hội thoại trước:\n{latest_summary}"
+    
+    except Exception as e:
+        print(f"❌ Error retrieving from Pinecone: {e}")
+        return "Không có cuộc hội thoại tương tự từ trước."
+
 def extract_entities(input_text: str):
     """Use Azure OpenAI function calling to extract food and location info."""
     response = client.chat.completions.create(
@@ -92,8 +375,8 @@ def extract_entities(input_text: str):
     return parsed.get("food"), parsed.get("location")
 
 # ---------------------- Chat Logic ----------------------
-def gen_answer(user_input, current_location):
-    """Main chat logic with context injection."""
+def gen_answer(user_input, current_location, conversation_history=None):
+    """Main chat logic with context injection, conversation history, and RAG from Pinecone."""
     food, place_text = extract_entities(user_input)
     print(f"🍜 Extracted food: {food}, location: {place_text}")
     
@@ -119,16 +402,40 @@ def gen_answer(user_input, current_location):
 
     # Use Foursquare search to get nearby restaurants
     nearby_restaurants = search_restaurants_as_string(coords["lat"], coords["lon"], food or "")
+    
+    # Retrieve similar conversations from Pinecone
+    similar_conversations = retrieve_similar_conversations(user_input)
+    print(f"📚 Retrieved similar conversations:\n{similar_conversations}")
 
     # Compose context
     context += f"Những nhà hàng liên quan ở gần đó:\n{nearby_restaurants}\n\nNgười dùng hỏi: {user_input}"
     print(f"🗒️ Context for LLM:\n{context}")
+    
+    # Use LangChain if available, otherwise fallback to OpenAI client
+    if llm and prompt_template:
+        # Use LangChain prompt template
+        formatted_prompt = prompt_template.invoke({
+            "similar_conversations": similar_conversations,
+            "context": context
+        })
+
+        # Generate response using LangChain
+        response = llm.invoke(formatted_prompt)
+        return response.content.strip()
+    else:
+        # Fallback to original OpenAI client
+        print("⚠️ Using fallback OpenAI client (LangChain not available)")
+        messages = [system_message]
+        
+        if conversation_history:
+            for msg in conversation_history:
+                messages.append({"role": msg.role, "content": msg.content})
+        
+        messages.append({"role": "user", "content": context})
+    
     response = client.chat.completions.create(
         model=os.getenv("AZURE_OPENAI_MODEL_NAME"),
-        messages=[
-            system_message,
-            {"role": "user", "content": context}
-        ],
+        messages=messages,
         temperature=0.7
     )
 
@@ -148,9 +455,22 @@ app.add_middleware(
 @app.post("/chat")
 async def chat(message: ChatMessage):
     print(f"📝 Received chat request: {message.dict()}")
+    print(f"📚 Conversation history length: {len(message.history)}")
     try:
-        answer = gen_answer(message.text, message.location)
+        answer = gen_answer(message.text, message.location, message.history)
         print(f"✅ Generated answer successfully")
+        # Save conversation to Pinecone if there's meaningful history (at least 2 exchanges)
+        if len(message.history) >= 2:
+            # Convert Message objects to dicts
+            full_conversation = [
+                {"role": msg.role, "content": msg.content} for msg in message.history
+            ]
+            # Add current exchange
+            full_conversation.extend([
+                {"role": "user", "content": message.text},
+                {"role": "assistant", "content": answer}
+            ])
+            save_conversation_to_pinecone(full_conversation, message.location)
         return {"message": answer}
     except Exception as e:
         print(f"❌ Error generating answer: {str(e)}")
@@ -159,6 +479,43 @@ async def chat(message: ChatMessage):
 @app.post("/location")
 async def reverse_geocode(location: Location):
     return get_location_from_coordinates(location.lat, location.lon)
+
+@app.get("/search-history")
+async def search_conversation_history(query: str, limit: int = 5):
+    """Search similar conversations from Pinecone using semantic search."""
+    try:
+        # Generate embedding for the search query using new embedding model
+        embedding_response = embedding_client.embeddings.create(
+            model=os.getenv("AZURE_EMBEDDING_MODEL"),
+            input=query
+        )
+        query_embedding = embedding_response.data[0].embedding
+        
+        # Search in Pinecone
+        results = index.query(
+            vector=query_embedding,
+            top_k=limit,
+            include_metadata=True
+        )
+        
+        # Format results
+        conversations = []
+        for match in results.matches:
+            conversations.append({
+                "score": match.score,
+                "summary": match.metadata.get("summary"),
+                "location": match.metadata.get("location"),
+                "timestamp": match.metadata.get("timestamp"),
+                "message_count": match.metadata.get("message_count")
+            })
+        
+        print(f"🔍 Found {len(conversations)} similar conversations")
+        return {"results": conversations}
+        
+    except Exception as e:
+        print(f"❌ Error searching Pinecone: {e}")
+        return {"error": str(e), "results": []}
+
 
 @app.post("/speech-to-text")
 async def speech_to_text(audio: UploadFile = File(...)):
