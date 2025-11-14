@@ -82,29 +82,26 @@ except Exception as e:
     llm = None
     embeddings = None
 
-# Create LangChain prompt template
+# System prompt (Vietnamese) used by LangChain and fallback
+system_content = (
+    "You are an expert Vietnamese food reviewer who is friendly, approachable, and cheerful.\n"
+    "Answer in detail, engagingly, and with awareness of location; when possible, always provide the restaurant's specific address.\n"
+    "Use a friendly, approachable, and occasionally humorous tone; you may use icons/emojis to make answers more lively.\n"
+    "Always answer in English.\n\n"
+    "Only answer questions related to food, dishes, restaurants, or other cuisine-related topics.\n"
+    "If the user asks about unrelated subjects (for example: politics, specialized medical or legal advice, or other off-topic matters), politely decline and explain that you only answer food-related questions; suggest they ask an appropriate question.\n\n"
+    "You have access to similar past conversations to provide better context:\n{similar_conversations}"
+)
+
+# A dict usable for the fallback OpenAI client
+system_message = {"role": "system", "content": system_content}
+
+# Create LangChain prompt template (use the same system_content)
 prompt_template = ChatPromptTemplate.from_messages([
-    SystemMessage(content="""You are an expert Vietnamese food reviewer.
-    Provide detailed, engaging, and location-aware food and restaurant reviews.
-    Each restaurant recommendation should include specific address if any.
-    Always answer in Vietnamese.
-    
-    You have access to similar past conversations to provide better context and recommendations."""),
-    ("system", "Các cuộc hội thoại tương tự từ quá khứ:\n{similar_conversations}"),
+    SystemMessage(content=system_content),
     ("human", "{context}")
 ])
 
-system_message = {
-    "role": "system",
-    "content": """
-    You are an expert Vietnamese food reviewer.
-    Provide detailed, engaging, and location-aware food and restaurant reviews.
-    Each restaurant recommendation should include specific address if any.
-    Always answer in Vietnamese.
-    You will be provided data from database and nearby restaurant search to help you answer better.
-    If user's query is unrelated to food or restaurants, politely inform them that you can only assist with food and restaurant-related inquiries.
-    """
-}
 
 # ---------------------- Models ----------------------
 class Message(BaseModel):
@@ -129,13 +126,13 @@ def summarize_conversation(messages: list):
     # Messages are already dicts with 'role' and 'content' keys
     conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
     
-    summary_prompt = f"""Tóm tắt cuộc hội thoại sau thành một đoạn văn ngắn gọn, 
-    bao gồm: món ăn được đề cập, địa điểm, và các nhà hàng được gợi ý.
-    
-    Cuộc hội thoại:
+    summary_prompt = f"""Summarize the following conversation into a short paragraph (1-2 sentences),
+    including: dishes mentioned, locations, and any restaurants recommended.
+
+    Conversation:
     {conversation_text}
-    
-    Tóm tắt (1-2 câu):"""
+
+    Summary (1-2 sentences):"""
     
     try:
         response = client.chat.completions.create(
@@ -203,23 +200,23 @@ def save_conversation_to_pinecone(conversation_history: list, location: str):
                 for s in existing_summaries:
                     all_user_prompts.extend(s.get("user_prompts", []))
                 
-                overall_summary_prompt = f"""Phân tích và tóm tắt tổng hợp từ tất cả các cuộc hội thoại sau thành một đoạn văn (10-15 câu),
-                ĐẶC BIỆT CHÚ TRỌNG phân tích xu hướng và sở thích của người dùng dựa trên các câu hỏi của họ.
-                
-                Bao gồm chi tiết:
-                1. Các món ăn phổ biến được hỏi nhiều nhất
-                2. Các địa điểm thường xuyên
-                3. Xu hướng sở thích ẩm thực của người dùng (món Việt, món nước ngoài, đồ ăn vặt, v.v.)
-                4. Thói quen tìm kiếm (thích ăn gần, hay tìm quán xa, tìm theo món hay theo địa điểm)
-                5. Các nhà hàng được gợi ý và phản hồi
-                
-                Các cuộc hội thoại đã tóm tắt:
+                overall_summary_prompt = f"""Analyze and synthesize the following set of conversation summaries into a comprehensive written analysis (10-15 sentences).
+                Place special emphasis on trends and user preferences inferred from their questions.
+
+                Please include the following details:
+                1. The most frequently asked dishes
+                2. Frequently mentioned locations
+                3. Users' cuisine preference trends (e.g., Vietnamese, international, street food, etc.)
+                4. Search behavior patterns (e.g., prefer nearby options, willing to travel, search by dish vs. by location)
+                5. Restaurants that were recommended and any noted feedback
+
+                The summarized conversations:
                 {combined_text}
-                
-                CÁC CÂU HỎI CỦA NGƯỜI DÙNG (quan trọng nhất để phân tích sở thích):
+
+                USER QUESTIONS (most important for analyzing preferences):
                 {chr(10).join(all_user_prompts)}
-                
-                Tóm tắt tổng hợp (8-10 câu, tập trung vào xu hướng từ câu hỏi người dùng):"""
+
+                Overall synthesized summary (8-10 sentences, focusing on trends derived from user questions):"""
                 
                 try:
                     overall_response = client.chat.completions.create(
