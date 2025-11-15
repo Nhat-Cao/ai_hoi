@@ -50,23 +50,32 @@ elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 # Initialize Pinecone
 try:
     pc = Pinecone(api_key=os.getenv("PINECONE_DB_API_KEY"))
-    index_name = "ai-hoi-conversations"
-
+    
+    # Index for conversation history
+    conversation_index_name = "ai-hoi-conversations"
     # Create index if it doesn't exist (text-embedding-3-small has 1536 dimensions)
-    if index_name not in pc.list_indexes().names():
+    if conversation_index_name not in pc.list_indexes().names():
         pc.create_index(
-            name=index_name,
+            name=conversation_index_name,
             dimension=1536,  # text-embedding-3-small dimension
             metric="cosine",
             spec=ServerlessSpec(cloud="aws", region="us-east-1")
         )
-
-    # Connect to the index
-    index = pc.Index(index_name)
+    # Connect to conversation index
+    index = pc.Index(conversation_index_name)
+    
+    # Index for restaurant knowledge base (RAG)
+    rag_index_name = "ai-hoi"
+    # Connect to RAG index (should already exist with restaurant data)
+    rag_index = pc.Index(rag_index_name)
+    
     print("✅ Pinecone initialized successfully")
+    print(f"   - Conversation index: {conversation_index_name}")
+    print(f"   - RAG knowledge index: {rag_index_name}")
 except Exception as e:
     print(f"⚠️ Pinecone initialization failed: {e}")
     index = None
+    rag_index = None
 
 # Initialize LangChain components
 try:
@@ -297,6 +306,74 @@ def save_conversation_to_pinecone(conversation_history: list, location: str):
     except Exception as e:
         print(f"❌ Error saving to Pinecone: {e}")
 
+def retrieve_restaurant_knowledge(query: str, top_k: int = 5):
+    """Retrieve relevant restaurant information from Pinecone RAG knowledge base."""
+    if not rag_index:
+        print("⚠️ RAG index not available")
+        return ""
+    
+    try:
+        print(f"🔍 Searching RAG for: '{query}'")
+        
+        # Create embedding for the query
+        embedding_response = embedding_client.embeddings.create(
+            model=os.getenv("AZURE_EMBEDDING_MODEL"),
+            input=query
+        )
+        query_embedding = embedding_response.data[0].embedding
+        
+        # Query Pinecone RAG index for relevant restaurants
+        results = rag_index.query(
+            vector=query_embedding,
+            top_k=top_k,
+            include_metadata=True
+        )
+        
+        print(f"📊 RAG query returned {len(results.matches)} matches")
+        
+        if not results.matches:
+            print("📭 No restaurant matches found in RAG")
+            return ""
+        
+        # Debug: print all matches
+        for i, match in enumerate(results.matches):
+            print(f"  Match {i+1}: {match.metadata.get('name', 'N/A')} (score: {match.score:.4f})")
+        
+        # Format restaurant information
+        restaurant_info = []
+        for match in results.matches:
+            metadata = match.metadata
+            score = match.score
+            
+            # Use the 'text' field if available, otherwise construct info
+            if metadata.get('text'):
+                info = f"""
+**{metadata.get('name', 'N/A')}** (Độ phù hợp: {score:.2f})
+{metadata.get('text')}
+"""
+            else:
+                info = f"""
+**{metadata.get('name', 'N/A')}** (Độ phù hợp: {score:.2f})
+- Loại hình: {metadata.get('cuisine', 'N/A')}
+- Khu vực: {metadata.get('location', 'N/A')}
+- Địa chỉ: {metadata.get('address', 'N/A')}
+- Giá: {metadata.get('price_range', 'N/A')}
+- Món đặc trưng: {metadata.get('specialties', 'N/A')}
+"""
+            
+            restaurant_info.append(info)
+        
+        if not restaurant_info:
+            return ""
+        
+        result = f"🍽️ **Thông tin từ cơ sở dữ liệu nhà hàng:**\n\n" + "\n---\n".join(restaurant_info)
+        print(f"✅ Retrieved {len(restaurant_info)} restaurants from RAG knowledge base")
+        return result
+        
+    except Exception as e:
+        print(f"❌ Error retrieving restaurant knowledge: {e}")
+        return ""
+
 def retrieve_similar_conversations(query: str, top_k: int = 3):
     """Retrieve overall summary of all conversations from Pinecone."""
     if not index:
@@ -398,8 +475,16 @@ def gen_answer(user_input, current_location, conversation_history=None):
     # Retrieve similar conversations from Pinecone
     similar_conversations = retrieve_similar_conversations(user_input)
     print(f"📚 Retrieved similar conversations:\n{similar_conversations}")
+    
+    # Retrieve restaurant knowledge from RAG
+    restaurant_knowledge = retrieve_restaurant_knowledge(user_input, top_k=5)
+    if restaurant_knowledge:
+        print(f"🍽️ Retrieved restaurant knowledge from RAG")
 
-    # Compose context
+    # Compose context - prioritize RAG knowledge
+    if restaurant_knowledge:
+        context += f"{restaurant_knowledge}\n\n"
+    
     context += f"Những nhà hàng liên quan ở gần đó:\n{nearby_restaurants}\n\nNgười dùng hỏi: {user_input}"
     print(f"🗒️ Context for LLM:\n{context}")
     
