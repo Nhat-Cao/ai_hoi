@@ -49,7 +49,7 @@ elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 # Initialize Pinecone
 try:
-    pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+    pc = Pinecone(api_key=os.getenv("PINECONE_DB_API_KEY"))
     index_name = "ai-hoi-conversations"
 
     # Create index if it doesn't exist (text-embedding-3-small has 1536 dimensions)
