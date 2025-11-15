@@ -380,6 +380,8 @@ def gen_answer(user_input, current_location, conversation_history=None):
     context = ""
     if ((food is not None or food != "") or (place_text is not None or place_text != "")):
         query = f"'{food}' '{place_text}'."
+    else: 
+        query = user_input
         results = query_data(query, top_k=5, namespace="restaurants")
         if results and len(results) > 0:
             context += "Thông tin tham khảo từ cơ sở dữ liệu:\n"
