@@ -105,12 +105,14 @@ export default function Home() {
     {/* Chat area */}
     <div className="flex-1 overflow-y-auto no-scrollbar px-3 sm:px-[15%] md:px-[20%] lg:px-[25%]">
       <MessageList messages={messages} listRef={listRef}/>
+      
+      {/* Suggestion chips - show only at start */}
+      {showSuggestions && messages.length === 1 && (
+        <div className="mt-4">
+          <SuggestionChips onSelect={handleSuggestionSelect} disabled={sending} />
+        </div>
+      )}
     </div>
-
-    {/* Suggestion chips - show only at start */}
-    {showSuggestions && messages.length === 1 && (
-      <SuggestionChips onSelect={handleSuggestionSelect} disabled={sending} />
-    )}
 
     {/* Input area */}
     <div className="px-3 sm:px-[15%] md:px-[20%] lg:px-[25%]">

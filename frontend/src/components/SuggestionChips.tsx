@@ -16,17 +16,17 @@ const suggestions = [
 
 export default function SuggestionChips({ onSelect, disabled }: SuggestionChipsProps) {
   return (
-    <div className="px-3 sm:px-[15%] md:px-[20%] lg:px-[25%] pb-3">
-      <p className="text-gray-400 text-xs mb-2">💡 Gợi ý câu hỏi:</p>
-      <div className="flex flex-wrap gap-2">
+    <div className="py-2 max-w-full">
+      <p className="text-gray-500 text-[10px] mb-1">💡 Gợi ý:</p>
+      <div className="flex flex-wrap gap-1">
         {suggestions.map((suggestion, index) => (
           <button
             key={index}
             onClick={() => onSelect(suggestion.text)}
             disabled={disabled}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#2a2a2a] hover:bg-[#333] text-gray-300 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-[#3a3a3a] hover:border-orange-400/50"
+            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-[#2a2a2a] hover:bg-[#333] text-gray-300 text-[11px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-[#3a3a3a] hover:border-orange-400/50"
           >
-            <span>{suggestion.icon}</span>
+            <span className="text-[12px]">{suggestion.icon}</span>
             <span>{suggestion.text}</span>
           </button>
         ))}
