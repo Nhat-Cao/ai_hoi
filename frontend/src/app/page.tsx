@@ -4,21 +4,36 @@ import { useState, useRef, useEffect } from 'react';
 import Header from '@/components/Header';
 import MessageList from '@/components/MessageList';
 import MessageInput from '@/components/MessageInput';
+import SuggestionChips from '@/components/SuggestionChips';
 import { getUserLocation, sendChatMessage } from '@/service/api';
 
 export default function Home() {
   const [messages, setMessages] = useState<Array<{ id: string; role: 'user' | 'bot'; text: string; isTyping?: boolean }>>([{
     id: 'sys',
     role: 'bot',
-    text: 'Xin chào! Hãy hỏi tôi về món ăn và nhà hàng quanh bạn.'
+    text: 'Chào bạn! Mình là trợ lý ẩm thực của bạn đây! 😊🍜\n\nBạn muốn tìm món gì ngon hôm nay? Cứ hỏi mình nhé - mình biết hết các quán ngon xung quanh đây! ✨'
   }]);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<string | undefined>();
+  const [showSuggestions, setShowSuggestions] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const handleSuggestionSelect = (text: string) => {
+    setInputText(text);
+    setShowSuggestions(false);
+    // Auto-send after a short delay
+    setTimeout(() => {
+      const event = new Event('submit');
+      handleSend();
+    }, 100);
+  };
 
   const handleSend = async () => {
     if (!inputText.trim() || sending) return;
+
+    // Hide suggestions after first message
+    setShowSuggestions(false);
 
     const newMessage = {
       id: Date.now().toString(),
@@ -90,6 +105,13 @@ export default function Home() {
     {/* Chat area */}
     <div className="flex-1 overflow-y-auto no-scrollbar px-3 sm:px-[15%] md:px-[20%] lg:px-[25%]">
       <MessageList messages={messages} listRef={listRef}/>
+      
+      {/* Suggestion chips - show only at start */}
+      {showSuggestions && messages.length === 1 && (
+        <div className="mt-4">
+          <SuggestionChips onSelect={handleSuggestionSelect} disabled={sending} />
+        </div>
+      )}
     </div>
 
     {/* Input area */}
