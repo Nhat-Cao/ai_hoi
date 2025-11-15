@@ -41,7 +41,7 @@ client = AzureOpenAI(
 embedding_client = AzureOpenAI(
     api_version="2024-07-01-preview",
     azure_endpoint=os.getenv("AZURE_EMBEDDING_ENDPOINT"),
-    api_key=os.getenv("AZURE_EMBEDDING_API_KEY"),
+    api_key=os.getenv("AZURE_OPENAI_EMBEDDING_API_KEY"),
 )
 
 # Initialize ElevenLabs client
@@ -191,7 +191,7 @@ def save_conversation_to_pinecone(conversation_history: list, location: str):
                 
                 # Generate new embedding from combined text
                 embedding_response = embedding_client.embeddings.create(
-                    model=os.getenv("AZURE_EMBEDDING_MODEL"),
+                    model=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL_NAME"),
                     input=combined_text
                 )
                 embedding = embedding_response.data[0].embedding
@@ -245,7 +245,7 @@ def save_conversation_to_pinecone(conversation_history: list, location: str):
             else:
                 # First conversation - create initial vector
                 embedding_response = embedding_client.embeddings.create(
-                    model=os.getenv("AZURE_EMBEDDING_MODEL"),
+                    model=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL_NAME"),
                     input=summary
                 )
                 embedding = embedding_response.data[0].embedding
@@ -271,7 +271,7 @@ def save_conversation_to_pinecone(conversation_history: list, location: str):
             print(f"⚠️ Fetch error (creating new): {fetch_error}")
             # First time - create initial vector
             embedding_response = embedding_client.embeddings.create(
-                model=os.getenv("AZURE_EMBEDDING_MODEL"),
+                model=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL_NAME"),
                 input=summary
             )
             embedding = embedding_response.data[0].embedding
@@ -317,7 +317,7 @@ def retrieve_restaurant_knowledge(query: str, top_k: int = 5):
         
         # Create embedding for the query
         embedding_response = embedding_client.embeddings.create(
-            model=os.getenv("AZURE_EMBEDDING_MODEL"),
+            model=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL_NAME"),
             input=query
         )
         query_embedding = embedding_response.data[0].embedding
@@ -563,7 +563,7 @@ async def search_conversation_history(query: str, limit: int = 5):
     try:
         # Generate embedding for the search query using new embedding model
         embedding_response = embedding_client.embeddings.create(
-            model=os.getenv("AZURE_EMBEDDING_MODEL"),
+            model=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL_NAME"),
             input=query
         )
         query_embedding = embedding_response.data[0].embedding

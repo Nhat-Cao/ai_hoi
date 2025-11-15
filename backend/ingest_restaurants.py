@@ -3,7 +3,7 @@ Script to ingest restaurants knowledge from markdown file into Pinecone
 """
 import os
 from dotenv import load_dotenv
-from pinecone import Pinecone
+from pinecone import Pinecone, ServerlessSpec
 from openai import AzureOpenAI
 import re
 from datetime import datetime
@@ -12,14 +12,14 @@ from datetime import datetime
 load_dotenv()
 
 # Initialize Pinecone
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+pc = Pinecone(api_key=os.getenv("PINECONE_DB_API_KEY"))
 index_name = "ai-hoi"
 
 # Initialize Azure OpenAI for embeddings
 embedding_client = AzureOpenAI(
     api_version="2024-02-01",
     azure_endpoint=os.getenv("AZURE_EMBEDDING_ENDPOINT"),
-    api_key=os.getenv("AZURE_EMBEDDING_API_KEY"),
+    api_key=os.getenv("AZURE_OPENAI_EMBEDDING_API_KEY"),
 )
 
 def parse_restaurant_markdown(file_path):
@@ -84,13 +84,15 @@ def parse_restaurant_markdown(file_path):
 def create_embedding(text):
     """Create embedding using Azure OpenAI"""
     response = embedding_client.embeddings.create(
-        model=os.getenv("AZURE_EMBEDDING_MODEL", "text-embedding-3-small"),
+        model=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL_NAME", "text-embedding-3-small"),
         input=text
     )
     return response.data[0].embedding
 
 def ingest_to_pinecone(restaurants):
     """Ingest restaurant data into Pinecone"""
+    if index_name not in [index["name"] for index in pc.list_indexes()]:
+        pc.create_index(name=index_name, dimension=1536, metric="cosine", spec=ServerlessSpec(cloud="aws", region="us-east-1"))
     # Connect to index (should already exist)
     index = pc.Index(index_name)
     
